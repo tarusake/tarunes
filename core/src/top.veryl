@@ -1,6 +1,8 @@
 module top #(
-    param MEMORY_FILEPATH_IS_ENV: bit    = 1                 ,
-    param MEMORY_FILEPATH       : string = "MEMORY_FILE_PATH",
+    param PROM_FILEPATH_IS_ENV: bit    = 1               ,
+    param PROM_FILEPATH       : string = "PROM_FILE_PATH",
+    param CROM_FILEPATH_IS_ENV: bit    = 1               ,
+    param CROM_FILEPATH       : string = "CROM_FILE_PATH",
 ) (
     clk: input clock,
     rst: input reset,
@@ -23,6 +25,11 @@ module top #(
         we   : we   ,
     );
 
+    inst ppu_inst: ppu (
+        clk: clk,
+        rst: rst,
+    );
+
     // 8bit Width
     // 2KB(2**11 = 2048)
     inst wram: ram::<8, 11> (
@@ -37,8 +44,8 @@ module top #(
     // 8bit Width
     // 32KB(2**16 = 32768)
     inst prom: rom::<8, 15> #(
-        FILEPATH_IS_ENV: MEMORY_FILEPATH_IS_ENV,
-        FILEPATH       : MEMORY_FILEPATH       ,
+        FILEPATH_IS_ENV: PROM_FILEPATH_IS_ENV,
+        FILEPATH       : PROM_FILEPATH       ,
     ) (
         clk  : clk       ,
         rst  : rst       ,
@@ -66,4 +73,28 @@ module top #(
         }
     }
 
+    // PPU Bus
+
+    // 8bit Width
+    // 2KB(2**11 = 2048)
+    inst vram: ram::<8, 11> (
+        clk: clk,
+        rst: rst,
+        // addr : addr      ,
+        // we   : we        ,
+        // rdata: wram_rdata,
+        // wdata: wdata     ,
+    );
+
+    // 8bit Width
+    // 8KB(2**13 = 8096)
+    inst crom: rom::<8, 13> #(
+        FILEPATH_IS_ENV: CROM_FILEPATH_IS_ENV,
+        FILEPATH       : CROM_FILEPATH       ,
+    ) (
+        clk: clk,
+        rst: rst,
+        // addr : addr      ,
+        // rdata: prom_rdata,
+    );
 }

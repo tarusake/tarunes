@@ -4,7 +4,6 @@
 #include <verilated.h>
 #include <verilated_vcd_c.h>
 #include "Vcore_top.h"
-#include "Vcore_top___024root.h"   // ← これが必要！！
 
 namespace fs = std::filesystem;
 
@@ -21,26 +20,35 @@ double sc_time_stamp() { return main_time; }
 int main(int argc, char** argv) {
     Verilated::commandArgs(argc, argv);
 
-    if (argc < 2) {
-        std::cout << "Usage: " << argv[0] << " MEMORY_FILE_PATH [CYCLE]" << std::endl;
+    if (argc < 3) {
+        std::cout << "Usage: " << argv[0] << " PROM_FILE_PATH CROM_FILE_PATH [CYCLE]" << std::endl;
         return 1;
     }
 
     // 引数からファイルパスを取得
-    std::string memory_file_path = argv[1];
+    std::string prom_file_path = argv[1];
+    std::string crom_file_path = argv[2];
 
     // 絶対パスにする
-    memory_file_path = fs::absolute(memory_file_path).string();
+    try {
+        prom_file_path = fs::absolute(prom_file_path).string();
+        crom_file_path = fs::absolute(crom_file_path).string();
+    } catch (const std::exception& e) {
+        std::cerr << "Invalid memory file path : " << e.what() << std::endl;
+        return 1;
+    }
 
     // 指定サイクル数
     uint64_t cycles = 0;
     if (argc >= 3) {
-        cycles = std::stoull(argv[2]);
+        cycles = std::stoull(argv[3]);
     }
 
     // 環境変数を設定
-    const char* original_env = std::getenv("MEMORY_FILE_PATH");
-    setenv("MEMORY_FILE_PATH", memory_file_path.c_str(), 1);
+    const char* original_prom_env = std::getenv("PROM_FILE_PATH");
+    const char* original_crom_env = std::getenv("CROM_FILE_PATH");
+    setenv("PROM_FILE_PATH", prom_file_path.c_str(), 1);
+    setenv("CROM_FILE_PATH", crom_file_path.c_str(), 1);
 
     // DUT 生成
     Vcore_top* dut = new Vcore_top;
@@ -50,11 +58,6 @@ int main(int argc, char** argv) {
     VerilatedVcdC* tfp = new VerilatedVcdC;
     dut->trace(tfp, 99);
     tfp->open("dump.vcd");
-
-    // memory
-    // dut->rootp->core_top__DOT__prom__DOT__mem[0x7FFC] = 0x00;
-    // dut->rootp->core_top__DOT__prom__DOT__mem[0x7FFD] = 0x80;
-    // dut->rootp->core_top__DOT__prom__DOT__mem[0x0000] = 0xff;
 
     // Reset シーケンス
     dut->clk = 0;
@@ -85,8 +88,10 @@ int main(int argc, char** argv) {
     tfp->close();
 
     // 環境変数を元に戻す
-    if (original_env)
-        setenv("MEMORY_FILE_PATH", original_env, 1);
+    if (original_prom_env)
+        setenv("PROM_FILE_PATH", original_prom_env, 1);
+    if (original_crom_env)
+        setenv("CROM_FILE_PATH", original_crom_env, 1);
 
     return 0;
 }

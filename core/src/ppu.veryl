@@ -1,0 +1,18 @@
+module ppu (
+    clk: input clock,
+    rst: input reset,
+
+    // cpu
+    cpu_rdata: output logic<8> ,
+    cpu_wdata: input  logic<8> ,
+    cpu_addr : input  logic<16>,
+    cpu_we   : input  logic    ,
+
+    // vram
+
+    // rom
+
+    // video
+) {
+    // TODO
+}
