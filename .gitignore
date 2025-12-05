@@ -1,2 +1,4 @@
 sim/obj_dir
 *.lock
+*.vcd
+*.hex
