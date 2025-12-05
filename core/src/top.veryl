@@ -58,26 +58,43 @@ module top #(
     // bus assign
     assign wram_membus.addr = cpu_membus.addr;
     assign prom_membus.addr = cpu_membus.addr;
+    assign ppu_regbus.addr  = cpu_membus.addr;
 
     assign wram_membus.wdata = cpu_membus.wdata;
-    assign wram_membus.we    = cpu_membus.we;
+    assign ppu_regbus.wdata  = cpu_membus.wdata;
 
-    // bus decode
-    let sel  : logic = if (cpu_membus.addr <: 16'h0800) ? 0 : 1;
-    var sel_d: logic;
+    var cpu_sel  : logic<2>;
+    var cpu_sel_d: logic<2>;
+
+    always_comb {
+        if (cpu_membus.addr <: 16'h2000) {
+            cpu_sel = 0; // WRAM
+        } else if (cpu_membus.addr <: 16'h4000) {
+            cpu_sel = 1; // PPU
+        } else if (cpu_membus.addr >= 16'h8000) {
+            cpu_sel = 2; // PROM
+        } else {
+            cpu_sel = 3;
+        }
+    }
+
+    assign wram_membus.we = if (cpu_sel == 0) ? cpu_membus.we : 0;
+    assign ppu_regbus.we  = if (cpu_sel == 1) ? cpu_membus.we : 0;
+    assign prom_membus.we = if (cpu_sel == 2) ? cpu_membus.we : 0;
 
     always_ff {
         if_reset {
-            sel_d = 0;
+            cpu_sel_d = 0;
         } else {
-            sel_d = sel;
+            cpu_sel_d = cpu_sel;
         }
     }
 
     always_comb {
-        case (sel_d) {
-            0      : cpu_membus.rdata = prom_membus.rdata;
-            1      : cpu_membus.rdata = prom_membus.rdata;
+        case (cpu_sel_d) {
+            0      : cpu_membus.rdata = wram_membus.rdata;
+            1      : cpu_membus.rdata = ppu_regbus.rdata;
+            2      : cpu_membus.rdata = prom_membus.rdata;
             default: cpu_membus.rdata = 16'hff;
         }
     }
