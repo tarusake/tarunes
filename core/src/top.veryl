@@ -8,10 +8,15 @@ module top #(
     rst: input reset,
 ) {
 
+    // CPU Bus
     inst cpu_membus : memif::<8, 16>;
+    inst ppu_regbus : memif::<8, 3>;
     inst wram_membus: memif::<8, 11>;
-    inst vram_membus: memif::<8, 11>;
     inst prom_membus: memif::<8, 15>;
+
+    // PPU Bus
+    inst ppu_membus : memif::<8, 14>;
+    inst vram_membus: memif::<8, 11>;
     inst crom_membus: memif::<8, 13>;
 
     var rdata     : logic<8>;
@@ -25,8 +30,10 @@ module top #(
     );
 
     inst ppu_inst: ppu (
-        clk: clk,
-        rst: rst,
+        clk   : clk       ,
+        rst   : rst       ,
+        cpubus: ppu_regbus,
+        ppubus: ppu_membus,
     );
 
     // 8bit Width

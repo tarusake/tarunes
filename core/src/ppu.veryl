@@ -1,16 +1,8 @@
 module ppu (
-    clk: input clock,
-    rst: input reset,
-
-    // cpu
-    cpu_rdata: output logic<8> ,
-    cpu_wdata: input  logic<8> ,
-    cpu_addr : input  logic<16>,
-    cpu_we   : input  logic    ,
-
-    // vram
-
-    // rom
+    clk   : input   clock                 ,
+    rst   : input   reset                 ,
+    cpubus: modport memif::<8, 3>::slave  ,
+    ppubus: modport memif::<8, 14>::master,
 
     // video
 ) {
