@@ -8,21 +8,20 @@ module top #(
     rst: input reset,
 ) {
 
-    var addr : logic<16>;
-    var wdata: logic<8> ;
-    var we   : logic    ;
+    inst cpu_membus : memif::<8, 16>;
+    inst wram_membus: memif::<8, 11>;
+    inst vram_membus: memif::<8, 11>;
+    inst prom_membus: memif::<8, 15>;
+    inst crom_membus: memif::<8, 13>;
 
     var rdata     : logic<8>;
     var wram_rdata: logic<8>;
     var prom_rdata: logic<8>;
 
     inst cpu_inst: cpu (
-        clk  : clk  ,
-        rst  : rst  ,
-        addr : addr ,
-        rdata: rdata,
-        wdata: wdata,
-        we   : we   ,
+        clk   : clk       ,
+        rst   : rst       ,
+        membus: cpu_membus,
     );
 
     inst ppu_inst: ppu (
@@ -33,12 +32,9 @@ module top #(
     // 8bit Width
     // 2KB(2**11 = 2048)
     inst wram: ram::<8, 11> (
-        clk  : clk       ,
-        rst  : rst       ,
-        addr : addr      ,
-        we   : we        ,
-        rdata: wram_rdata,
-        wdata: wdata     ,
+        clk   : clk        ,
+        rst   : rst        ,
+        membus: wram_membus,
     );
 
     // 8bit Width
@@ -47,14 +43,20 @@ module top #(
         FILEPATH_IS_ENV: PROM_FILEPATH_IS_ENV,
         FILEPATH       : PROM_FILEPATH       ,
     ) (
-        clk  : clk       ,
-        rst  : rst       ,
-        addr : addr      ,
-        rdata: prom_rdata,
+        clk   : clk        ,
+        rst   : rst        ,
+        membus: prom_membus,
     );
 
+    // bus assign
+    assign wram_membus.addr = cpu_membus.addr;
+    assign prom_membus.addr = cpu_membus.addr;
+
+    assign wram_membus.wdata = cpu_membus.wdata;
+    assign wram_membus.we    = cpu_membus.we;
+
     // bus decode
-    let sel  : logic = if (addr <: 16'h0800) ? 0 : 1;
+    let sel  : logic = if (cpu_membus.addr <: 16'h0800) ? 0 : 1;
     var sel_d: logic;
 
     always_ff {
@@ -67,9 +69,9 @@ module top #(
 
     always_comb {
         case (sel_d) {
-            0      : rdata = wram_rdata;
-            1      : rdata = prom_rdata;
-            default: rdata = 16'hff;
+            0      : cpu_membus.rdata = prom_membus.rdata;
+            1      : cpu_membus.rdata = prom_membus.rdata;
+            default: cpu_membus.rdata = 16'hff;
         }
     }
 
@@ -78,12 +80,9 @@ module top #(
     // 8bit Width
     // 2KB(2**11 = 2048)
     inst vram: ram::<8, 11> (
-        clk: clk,
-        rst: rst,
-        // addr : addr      ,
-        // we   : we        ,
-        // rdata: wram_rdata,
-        // wdata: wdata     ,
+        clk   : clk        ,
+        rst   : rst        ,
+        membus: vram_membus,
     );
 
     // 8bit Width
@@ -92,9 +91,8 @@ module top #(
         FILEPATH_IS_ENV: CROM_FILEPATH_IS_ENV,
         FILEPATH       : CROM_FILEPATH       ,
     ) (
-        clk: clk,
-        rst: rst,
-        // addr : addr      ,
-        // rdata: prom_rdata,
+        clk   : clk        ,
+        rst   : rst        ,
+        membus: crom_membus,
     );
 }

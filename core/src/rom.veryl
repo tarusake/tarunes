@@ -2,10 +2,9 @@ module rom::<DATA_WIDTH: u32, ADDR_WIDTH: u32> #(
     param FILEPATH_IS_ENV: logic  = 0 , // FILEPATHが環境変数名かどうか
     param FILEPATH       : string = "", // メモリの初期化用ファイルのパス, または環境変数名
 ) (
-    clk  : input  clock            ,
-    rst  : input  reset            ,
-    addr : input  logic<ADDR_WIDTH>,
-    rdata: output logic<DATA_WIDTH>,
+    clk   : input   clock                                 ,
+    rst   : input   reset                                 ,
+    membus: modport memif::<DATA_WIDTH, ADDR_WIDTH>::slave,
 ) {
     var mem: logic<DATA_WIDTH> [2 ** ADDR_WIDTH];
 
@@ -21,9 +20,9 @@ module rom::<DATA_WIDTH: u32, ADDR_WIDTH: u32> #(
 
     always_ff {
         if_reset {
-            rdata = 0;
+            membus.rdata = 0;
         } else {
-            rdata = mem[addr];
+            membus.rdata = mem[membus.addr];
         }
     }
 }
