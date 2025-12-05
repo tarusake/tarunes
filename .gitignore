@@ -1,4 +1,13 @@
-sim/obj_dir
+# Build output
+.build/
+target/
+dependencies/
+*.f
+
+# Verilator
+obj_dir/
+
+# other
 *.lock
 *.vcd
 *.hex
