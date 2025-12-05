@@ -2,5 +2,6 @@
 name = "core"
 version = "0.1.0"
 [build]
-source = "src"
+sources = ["src"]
 target = {type = "directory", path = "target"}
+sourcemap_target = {type = "none"}
