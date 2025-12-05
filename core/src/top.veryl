@@ -29,13 +29,17 @@ module top #(
         clk  : clk       ,
         rst  : rst       ,
         addr : addr      ,
+        we   : we        ,
         rdata: wram_rdata,
         wdata: wdata     ,
     );
 
     // 8bit Width
     // 32KB(2**16 = 32768)
-    inst prom: rom::<8, 15> (
+    inst prom: rom::<8, 15> #(
+        FILEPATH_IS_ENV: MEMORY_FILEPATH_IS_ENV,
+        FILEPATH       : MEMORY_FILEPATH       ,
+    ) (
         clk  : clk       ,
         rst  : rst       ,
         addr : addr      ,

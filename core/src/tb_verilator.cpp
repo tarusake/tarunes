@@ -52,9 +52,9 @@ int main(int argc, char** argv) {
     tfp->open("dump.vcd");
 
     // memory
-    dut->rootp->core_top__DOT__prom__DOT__mem[0x7FFC] = 0x00;
-    dut->rootp->core_top__DOT__prom__DOT__mem[0x7FFD] = 0x80;
-    dut->rootp->core_top__DOT__prom__DOT__mem[0x0000] = 0xff;
+    // dut->rootp->core_top__DOT__prom__DOT__mem[0x7FFC] = 0x00;
+    // dut->rootp->core_top__DOT__prom__DOT__mem[0x7FFD] = 0x80;
+    // dut->rootp->core_top__DOT__prom__DOT__mem[0x0000] = 0xff;
 
     // Reset シーケンス
     dut->clk = 0;
