@@ -1,0 +1,25 @@
+module ram::<DATA_WIDTH: u32, ADDR_WIDTH: u32> (
+    clk  : input  clock    ,
+    rst  : input  reset    ,
+    addr : input  logic<16>,
+    we   : input  logic    ,
+    wdata: input  logic<8> ,
+    rdata: output logic<8> ,
+) {
+
+    var mem: logic<DATA_WIDTH> [2 ** ADDR_WIDTH];
+
+    always_ff {
+        if_reset {
+            for i: u32 in 0..2 ** ADDR_WIDTH {
+                mem[i] = 0;
+            }
+            rdata = 0;
+        } else {
+            rdata = mem[addr];
+            if we {
+                mem[addr] = wdata;
+            }
+        }
+    }
+}

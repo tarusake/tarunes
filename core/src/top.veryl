@@ -1,0 +1,69 @@
+module top #(
+    param MEMORY_FILEPATH_IS_ENV: bit    = 1                 ,
+    param MEMORY_FILEPATH       : string = "MEMORY_FILE_PATH",
+) (
+    clk: input clock,
+    rst: input reset,
+) {
+
+    var addr : logic<16>;
+    var wdata: logic<8> ;
+    var we   : logic    ;
+
+    var rdata     : logic<8>;
+    var wram_rdata: logic<8>;
+    var prom_rdata: logic<8>;
+
+    inst cpu_inst: cpu (
+        clk  : clk  ,
+        rst  : rst  ,
+        addr : addr ,
+        rdata: rdata,
+        wdata: wdata,
+        we   : we   ,
+    );
+
+    // 8bit Width
+    // 2KB(2**11 = 2048)
+    inst wram: ram::<8, 11> (
+        clk  : clk       ,
+        rst  : rst       ,
+        addr : addr      ,
+        we   : we        ,
+        rdata: wram_rdata,
+        wdata: wdata     ,
+    );
+
+    // 8bit Width
+    // 32KB(2**16 = 32768)
+    inst prom: rom::<8, 15> #(
+        FILEPATH_IS_ENV: MEMORY_FILEPATH_IS_ENV,
+        FILEPATH       : MEMORY_FILEPATH       ,
+    ) (
+        clk  : clk       ,
+        rst  : rst       ,
+        addr : addr      ,
+        rdata: prom_rdata,
+    );
+
+    // bus decode
+    let sel  : logic = if (addr <: 16'h0800) ? 0 : 1;
+    var sel_d: logic;
+
+    always_ff {
+        if_reset {
+            sel_d = 0;
+        } else {
+            sel_d = sel;
+        }
+    }
+
+    always_comb {
+        case (sel_d) {
+            0      : rdata = wram_rdata;
+            1      : rdata = prom_rdata;
+            default: rdata = 16'hff;
+        }
+    }
+
+}

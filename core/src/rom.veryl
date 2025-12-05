@@ -1,0 +1,29 @@
+module rom::<DATA_WIDTH: u32, ADDR_WIDTH: u32> #(
+    param FILEPATH_IS_ENV: logic  = 0 , // FILEPATHが環境変数名かどうか
+    param FILEPATH       : string = "", // メモリの初期化用ファイルのパス, または環境変数名
+) (
+    clk  : input  clock            ,
+    rst  : input  reset            ,
+    addr : input  logic<ADDR_WIDTH>,
+    rdata: output logic<DATA_WIDTH>,
+) {
+    var mem: logic<DATA_WIDTH> [2 ** ADDR_WIDTH];
+
+    initial {
+        if FILEPATH != "" {
+            if FILEPATH_IS_ENV {
+                $readmemh(util::get_env(FILEPATH), mem);
+            } else {
+                $readmemh(FILEPATH, mem);
+            }
+        }
+    }
+
+    always_ff {
+        if_reset {
+            rdata = 0;
+        } else {
+            rdata = mem[addr];
+        }
+    }
+}
