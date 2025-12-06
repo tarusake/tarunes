@@ -119,4 +119,36 @@ module top #(
         rst   : rst        ,
         membus: crom_membus,
     );
+
+    var ppu_sel  : logic;
+    var ppu_sel_d: logic;
+
+    always_comb {
+        if (ppu_membus.addr <: 16'h2000) {
+            ppu_sel = 0; // CROM
+        } else {
+            ppu_sel = 1; // VRAM
+        }
+    }
+
+    assign vram_membus.addr  = ppu_membus.addr;
+    assign vram_membus.wdata = ppu_membus.wdata;
+    assign vram_membus.we    = if (ppu_sel == 1) ? ppu_membus.we : 0;
+
+    always_ff {
+        if_reset {
+            ppu_sel_d = 0;
+        } else {
+            ppu_sel_d = ppu_sel;
+        }
+    }
+
+    always_comb {
+        case (ppu_sel_d) {
+            0      : ppu_membus.rdata = crom_membus.rdata;
+            1      : ppu_membus.rdata = vram_membus.rdata;
+            default: cpu_membus.rdata = 16'hff;
+        }
+    }
+
 }

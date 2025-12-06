@@ -7,7 +7,7 @@ module ppu (
     // video
 ) {
 
-    // status,oamaddr, oamdataは未実装
+    // status,oamaddr,oamdataは未実装
     var reg_ctrl: logic<8>;
     var reg_mask: logic<8>;
     var scroll_x: logic<8>;
@@ -51,6 +51,7 @@ module ppu (
                             palette[ppubus.addr] = cpubus.wdata;
                         } else {
                             ppubus.wdata = cpubus.wdata;
+                            ppubus.we    = 1;
                         }
 
                         ppubus.addr = if (reg_ctrl[2]) ? ppubus.addr + 32 : ppubus.addr + 1;
