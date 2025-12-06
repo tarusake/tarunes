@@ -8,38 +8,66 @@ module ppu (
 ) {
 
     // status,oamaddr, oamdataは未実装
-    var reg_ctrl  : logic<8>;
-    var reg_mask  : logic<8>;
-    var ppu_scroll: logic<8>;
-    var ppu_addr  : logic<8>;
-    var ppu_data  : logic<8>;
+    var reg_ctrl: logic<8>;
+    var reg_mask: logic<8>;
+    var scroll_x: logic<8>;
+    var scroll_y: logic<8>;
+    var reg_w   : logic   ;
+
+    var palette: logic<8> [32];
 
     always_ff {
         if_reset {
-            reg_ctrl   = 0;
-            reg_mask   = 0;
-            ppu_scroll = 0;
-            ppu_addr   = 0;
-            ppu_data   = 0;
+            reg_ctrl = 0;
+            reg_mask = 0;
+            scroll_x = 0;
+            scroll_y = 0;
+            reg_w    = 0;
         } else {
             if (cpubus.we) {
                 case (cpubus.addr) {
-                    0: reg_ctrl   = cpubus.wdata;
-                    1: reg_mask   = cpubus.wdata;
-                    5: ppu_scroll = cpubus.wdata;
-                    6: ppu_addr   = cpubus.wdata;
-                    7: ppu_data   = cpubus.wdata;
+                    0: reg_ctrl = cpubus.wdata;
+                    1: reg_mask = cpubus.wdata;
+                    5: {
+                        reg_w = !reg_w;
+                        if !reg_w {
+                            scroll_x = cpubus.wdata;
+                        } else {
+                            scroll_y = cpubus.wdata;
+                        }
+                    }
+                    6: {
+                        reg_w = !reg_w;
+                        if !reg_w {
+                            ppubus.addr[13:8] = cpubus.wdata;
+                        } else {
+                            ppubus.addr[7:0] = cpubus.wdata;
+                        }
+                    }
+
+                    7: {
+                        // 3F00以上の時はパレットテーブル
+                        if (ppubus.addr >= 16'h3F00) {
+                            palette[ppubus.addr] = cpubus.wdata;
+                        } else {
+                            ppubus.wdata = cpubus.wdata;
+                        }
+
+                        ppubus.addr = if (reg_ctrl[2]) ? ppubus.addr + 32 : ppubus.addr + 1;
+                    }
                 }
 
             } else {
                 case (cpubus.addr) {
-                    0: cpubus.rdata = reg_ctrl;
-                    1: cpubus.rdata = reg_mask;
-                    5: cpubus.rdata = ppu_scroll;
-                    6: cpubus.rdata = ppu_addr;
-                    7: cpubus.rdata = ppu_data;
+                    //ctrl,mask,scroll,ppu_addrはWO
+                    7: {
+                        if (ppubus.addr >= 16'h3F00) {
+                            cpubus.rdata = palette[ppubus.addr];
+                        } else {
+                            cpubus.rdata = ppubus.rdata;
+                        }
+                    }
                 }
-
             }
 
         }
