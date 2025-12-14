@@ -137,6 +137,16 @@ module cpu (
                             reg_pc = reg_pc + 1;
                         }
 
+                        opcode_t::INX: {
+                            $display("[DECODE] PC=%04h OPCODE=INX", reg_pc);
+                            let result  : logic<8> = reg_x + 1;
+                            reg_x    = result;
+                            reg_p[1] = (result == 0);
+                            reg_p[7] = result[7];
+                            state    = cpu_state_t::FETCH;
+                            reg_pc   = reg_pc + 1;
+                        }
+
                         // 即値命令
                         opcode_t::LDA_IMM,
                         opcode_t::LDX_IMM,
