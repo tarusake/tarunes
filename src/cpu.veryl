@@ -172,7 +172,8 @@ module cpu (
 
                         // それ以上の命令
                         opcode_t::STA_ABS,
-                        opcode_t::LDA_ABX : {
+                        opcode_t::LDA_ABX,
+                        opcode_t::JMP_ABS : {
                             cpubus.addr = reg_pc + 1;
                             mem_ready   = 1;
                             if (mem_ready) {
@@ -189,7 +190,8 @@ module cpu (
 
                 cpu_state_t::OP1: {
                     case (opcode) {
-                        opcode_t::STA_ABS: {
+                        opcode_t::STA_ABS,
+                        opcode_t::JMP_ABS : {
                             op1         = cpubus.rdata;
                             cpubus.addr = reg_pc + 2;
                             mem_ready   = 1;
@@ -234,6 +236,12 @@ module cpu (
                                 reg_pc = reg_pc + 2;
                             }
                             state = cpu_state_t::FETCH;
+                        }
+
+                        opcode_t::JMP_ABS: {
+                            $display("[EXECUTE] PC=%04h OPCODE=JMP_ABS", reg_pc);
+                            reg_pc   = {cpubus.rdata, op1};
+                            state    = cpu_state_t::FETCH;
                         }
 
                         opcode_t::LDA_IMM,
