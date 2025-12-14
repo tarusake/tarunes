@@ -70,6 +70,17 @@ module cpu (
                     reg_pc[15:8] = cpubus.rdata;
                     state        = cpu_state_t::FETCH;
                 }
+                // PCを読み込む、データが返ってきたらDECODEステートへ
+                cpu_state_t::FETCH: {
+                    cpubus.addr = reg_pc;
+                    cpubus.wen  = 0;
+                    mem_ready   = 1;
+                    // 1clk待つ
+                    if (mem_ready) {
+                        mem_ready = 0;
+                        state     = cpu_state_t::DECODE;
+                    }
+                }
             }
         }
     }
