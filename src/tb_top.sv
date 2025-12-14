@@ -24,7 +24,7 @@ module tb_top;
         #20 rst = 1;
 
         // 必要なサイクルだけ回す
-        #1000;
+        #10000;
 
         $display("PC = %h", dut.cpu_inst.reg_pc);
         $finish;

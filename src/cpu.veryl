@@ -160,7 +160,8 @@ module cpu (
                         // 即値命令
                         opcode_t::LDA_IMM,
                         opcode_t::LDX_IMM,
-                        opcode_t::LDY_IMM : {
+                        opcode_t::LDY_IMM,
+                        opcode_t::BNE     : {
                             cpubus.addr = reg_pc + 1;
                             mem_ready   = 1;
                             if (mem_ready) {
@@ -224,6 +225,17 @@ module cpu (
 
                 cpu_state_t::EXEC: {
                     case (opcode) {
+                        // Z=0なら分岐する
+                        opcode_t::BNE: {
+                            $display("[EXECUTE] PC=%04h OPCODE=BNE", reg_pc);
+                            if (reg_p[1] == 0) {
+                                reg_pc = $signed(reg_pc) + 2 + {cpubus.rdata[7] repeat 8, cpubus.rdata};
+                            } else {
+                                reg_pc = reg_pc + 2;
+                            }
+                            state = cpu_state_t::FETCH;
+                        }
+
                         opcode_t::LDA_IMM,
                         opcode_t::LDA_ABX : {
                             $display("[EXECUTE] PC=%04h LDA_XXX", reg_pc);
