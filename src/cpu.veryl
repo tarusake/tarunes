@@ -14,6 +14,9 @@ module cpu (
     // メモリレイテンシ待ちフラグ
     var mem_ready: logic;
 
+    // opcode
+    var opcode: logic<8>;
+
     // CPU Inst(only helloworld)
     enum opcode_t: logic<8> {
         // Register Control
@@ -66,6 +69,8 @@ module cpu (
             cpubus.addr  = 0;
             cpubus.wen   = 0;
             cpubus.wdata = 0;
+            reg_p        = 8'h24; // bit[5]=1,bit[2]=1
+            reg_pc       = 16'h00;
         } else {
             case state {
                 // 0xFFFCをセット
@@ -98,6 +103,20 @@ module cpu (
                     if (mem_ready) {
                         mem_ready = 0;
                         state     = cpu_state_t::DECODE;
+                    }
+                }
+                cpu_state_t::DECODE: {
+                    opcode = cpubus.rdata;
+
+                    case (cpubus.rdata) {
+                        // IRQフラグ無効
+                        // ただし割り込み未実装のため現時点では意味はない
+                        opcode_t::SEI: {
+                            $display("[DECODE] PC=%04h OPCODE=SEI", reg_pc);
+                            reg_p[2] = 1'b1;
+                            state    = cpu_state_t::FETCH;
+                            reg_pc   = reg_pc + 1;
+                        }
                     }
                 }
             }
