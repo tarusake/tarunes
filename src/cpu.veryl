@@ -131,9 +131,10 @@ module cpu (
                             state  = cpu_state_t::FETCH;
                             reg_pc = reg_pc + 1;
                         }
-                        
+
                         // 即値命令
-                        opcode_t::LDX_IMM: {
+                        opcode_t::LDA_IMM,
+                        opcode_t::LDX_IMM : {
                             cpubus.addr = reg_pc + 1;
                             mem_ready   = 1;
                             if (mem_ready) {
@@ -145,6 +146,14 @@ module cpu (
                 }
                 cpu_state_t::EXEC: {
                     case (opcode) {
+                        opcode_t::LDA_IMM: {
+                            $display("[EXECUTE] PC=%04h LDA_IMM", reg_pc);
+                            reg_a    = cpubus.rdata;
+                            reg_a[1] = (cpubus.rdata == 0);
+                            reg_a[7] = cpubus.rdata[7];
+                            reg_pc   = reg_pc + 2;
+                            state    = cpu_state_t::FETCH;
+                        }
                         opcode_t::LDX_IMM: {
                             $display("[EXECUTE] PC=%04h LDX_IMM", reg_pc);
                             reg_x    = cpubus.rdata;
