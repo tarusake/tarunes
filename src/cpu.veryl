@@ -11,6 +11,9 @@ module cpu (
     var reg_pc: logic<16>; // Program counter
     var reg_p : logic<8> ; // Status Register
 
+    // メモリレイテンシ待ちフラグ
+    var mem_ready: logic;
+
     enum cpu_state_t {
         RESET0,
         RESET1,
@@ -21,6 +24,22 @@ module cpu (
         EXEC,
     }
     var state: cpu_state_t;
+
+    function debug_cpu_state_str (
+        state: input cpu_state_t,
+    ) -> logic<64> {
+        case (state) {
+            cpu_state_t::RESET0: return "RESET0";
+            cpu_state_t::RESET1: return "RESET1";
+            cpu_state_t::RESET2: return "RESET2";
+            cpu_state_t::RESET3: return "RESET3";
+            cpu_state_t::FETCH : return "FETCH";
+            cpu_state_t::DECODE: return "DECODE";
+            cpu_state_t::EXEC  : return "EXEC";
+        }
+    }
+
+    let state_debug: logic<64> = debug_cpu_state_str(state);
 
     always_ff {
         if_reset {
