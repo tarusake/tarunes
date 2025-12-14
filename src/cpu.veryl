@@ -14,6 +14,25 @@ module cpu (
     // メモリレイテンシ待ちフラグ
     var mem_ready: logic;
 
+    // CPU Inst(only helloworld)
+    enum opcode_t: logic<8> {
+        // Register Control
+        SEI = 8'h78,
+        TXS = 8'h9A,
+        INX = 8'hE8,
+        DEY = 8'h88,
+        // Load & Store
+        LDA_IMM = 8'hA9,
+        LDA_ABX = 8'hBD,
+        LDX_IMM = 8'hA2,
+        LDY_IMM = 8'hA0,
+        STA_ABS = 8'h8D,
+        // Branch
+        BNE = 8'hD0,
+        // JMP
+        JMP_ABS = 8'h4C,
+    }
+
     enum cpu_state_t {
         RESET0,
         RESET1,
