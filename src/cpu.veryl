@@ -254,7 +254,7 @@ module cpu (
                             state    = cpu_state_t::FETCH;
                         }
                         opcode_t::STA_ABS: {
-                            $display    ("[OP2] PC=%04h OPCODE=STA_ABS", reg_pc);
+                            $display    ("[EXECUTE] PC=%04h OPCODE=STA_ABS", reg_pc);
                             cpubus.addr  = {cpubus.rdata, op1};
                             cpubus.wdata = reg_a;
                             cpubus.wen   = 1'b1;
