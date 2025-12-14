@@ -124,6 +124,14 @@ module cpu (
                             reg_pc   = reg_pc + 1;
                         }
 
+                        opcode_t::TXS: {
+                            $display("[DECODE] PC=%04h OPCODE=TXS", reg_pc);
+                            reg_sp   = reg_x;
+                            // TXSはフラグ更新しない
+                            state  = cpu_state_t::FETCH;
+                            reg_pc = reg_pc + 1;
+                        }
+                        
                         // 即値命令
                         opcode_t::LDX_IMM: {
                             cpubus.addr = reg_pc + 1;
