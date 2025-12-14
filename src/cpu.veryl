@@ -16,6 +16,7 @@ module cpu (
 
     // opcode
     var opcode: logic<8>;
+    var op1   : logic<8>;
 
     // CPU Inst(only helloworld)
     enum opcode_t: logic<8> {
@@ -43,6 +44,7 @@ module cpu (
         RESET3,
         FETCH,
         DECODE,
+        OP1,
         EXEC,
     }
     var state: cpu_state_t;
@@ -57,6 +59,7 @@ module cpu (
             cpu_state_t::RESET3: return "RESET3";
             cpu_state_t::FETCH : return "FETCH";
             cpu_state_t::DECODE: return "DECODE";
+            cpu_state_t::OP1   : return "OP1";
             cpu_state_t::EXEC  : return "EXEC";
         }
     }
@@ -143,11 +146,36 @@ module cpu (
                             }
                         }
 
+                        // それ以上の命令
+                        opcode_t::STA_ABS: {
+                            cpubus.addr = reg_pc + 1;
+                            mem_ready   = 1;
+                            if (mem_ready) {
+                                mem_ready = 0;
+                                state     = cpu_state_t::OP1;
+                            }
+                        }
+
                         default: {
                             $display("[DECODE] Unknown Opcode : PC=%04h OPCODE=%02h", reg_pc, cpubus.rdata);
                         }
                     }
                 }
+
+                cpu_state_t::OP1: {
+                    case (opcode) {
+                        opcode_t::STA_ABS: {
+                            op1         = cpubus.rdata;
+                            cpubus.addr = reg_pc + 2;
+                            mem_ready   = 1;
+                            if (mem_ready) {
+                                mem_ready = 0;
+                                state     = cpu_state_t::EXEC;
+                            }
+                        }
+                    }
+                }
+
                 cpu_state_t::EXEC: {
                     case (opcode) {
                         opcode_t::LDA_IMM: {
@@ -166,10 +194,17 @@ module cpu (
                             reg_pc   = reg_pc + 2;
                             state    = cpu_state_t::FETCH;
                         }
+                        opcode_t::STA_ABS: {
+                            $display    ("[OP2] PC=%04h OPCODE=STA_ABS", reg_pc);
+                            cpubus.addr  = {cpubus.rdata, op1};
+                            cpubus.wdata = reg_a;
+                            cpubus.wen   = 1'b1;
+                            reg_pc       = reg_pc + 3;
+                            state        = cpu_state_t::FETCH;
+                        }
                     }
                 }
             }
         }
     }
-
 }
