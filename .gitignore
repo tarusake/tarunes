@@ -7,3 +7,7 @@
 # Verilator
 obj_dir/
 *.vcd
+
+# nes
+*.nes
+*.hex
