@@ -15,11 +15,11 @@ module bus (
 
     // address assign
     assign prombus.addr = if sel_prom ? cpubus.addr : 'x;
-    assign wrambus.addr = if sel_wram ? wrambus.addr : 'x;
+    assign wrambus.addr = if sel_wram ? cpubus.addr : 'x;
 
     // Write bus assign
-    assign wrambus.wdata = if sel_wram ? wrambus.wdata : 'x;
-    assign wrambus.wen   = if sel_wram ? wrambus.wen : 'x;
+    assign wrambus.wdata = if sel_wram ? cpubus.wdata : 'x;
+    assign wrambus.wen   = if sel_wram ? cpubus.wen : 'x;
 
     // rom
     assign prombus.wdata = 0;
