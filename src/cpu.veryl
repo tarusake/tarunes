@@ -248,8 +248,8 @@ module cpu (
                         opcode_t::LDA_ABX : {
                             $display("[EXECUTE] PC=%04h LDA_XXX", reg_pc);
                             reg_a    = cpubus.rdata;
-                            reg_a[1] = (cpubus.rdata == 0);
-                            reg_a[7] = cpubus.rdata[7];
+                            reg_p[1] = (cpubus.rdata == 0);
+                            reg_p[7] = cpubus.rdata[7];
                             if (opcode == opcode_t::LDA_IMM) {
                                 reg_pc = reg_pc + 2;
                             } else {
