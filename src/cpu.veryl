@@ -69,8 +69,14 @@ module cpu (
             cpubus.addr  = 0;
             cpubus.wen   = 0;
             cpubus.wdata = 0;
+            reg_a        = 0;
+            reg_x        = 0;
+            reg_y        = 0;
+            reg_sp       = 8'hFD;
             reg_p        = 8'h24; // bit[5]=1,bit[2]=1
-            reg_pc       = 16'h00;
+            reg_pc       = 0;
+            mem_ready    = 0;
+            opcode       = 0;
         } else {
             case state {
                 // 0xFFFCをセット
@@ -116,6 +122,28 @@ module cpu (
                             reg_p[2] = 1'b1;
                             state    = cpu_state_t::FETCH;
                             reg_pc   = reg_pc + 1;
+                        }
+
+                        // 即値命令
+                        opcode_t::LDX_IMM: {
+                            cpubus.addr = reg_pc + 1;
+                            mem_ready   = 1;
+                            if (mem_ready) {
+                                mem_ready = 0;
+                                state     = cpu_state_t::EXEC;
+                            }
+                        }
+                    }
+                }
+                cpu_state_t::EXEC: {
+                    case (opcode) {
+                        opcode_t::LDX_IMM: {
+                            $display("[EXECUTE] PC=%04h LDX_IMM", reg_pc);
+                            reg_x    = cpubus.rdata;
+                            reg_p[1] = (cpubus.rdata == 0);
+                            reg_p[7] = cpubus.rdata[7];
+                            reg_pc   = reg_pc + 2;
+                            state    = cpu_state_t::FETCH;
                         }
                     }
                 }
