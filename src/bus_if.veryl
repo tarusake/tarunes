@@ -1,0 +1,18 @@
+interface bus_if::<DATA_WIDTH: u32, ADDR_WIDTH: u32> {
+    var addr : logic<ADDR_WIDTH>;
+    var wen  : logic            ;
+    var wdata: logic<DATA_WIDTH>;
+    var rdata: logic<DATA_WIDTH>;
+
+    modport master {
+        addr : output,
+        wen  : output,
+        wdata: output,
+        rdata: input ,
+    }
+
+    modport slave {
+        ..converse(master)
+    }
+
+}

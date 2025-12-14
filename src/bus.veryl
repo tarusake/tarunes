@@ -1,0 +1,52 @@
+module bus (
+    clk    : input   clock                  ,
+    rst    : input   reset                  ,
+    cpubus : modport bus_if::<8, 16>::slave ,
+    wrambus: modport bus_if::<8, 11>::master,
+    prombus: modport bus_if::<8, 15>::master,
+) {
+
+    var sel_prom: logic;
+    var sel_wram: logic;
+
+    // Addr sel
+    assign sel_wram = cpubus.addr <: 16'h2000;
+    assign sel_prom = cpubus.addr >= 16'h8000;
+
+    // address assign
+    assign prombus.addr = if sel_prom ? cpubus.addr : 'x;
+    assign wrambus.addr = if sel_wram ? wrambus.addr : 'x;
+
+    // Write bus assign
+    assign wrambus.wdata = if sel_wram ? wrambus.wdata : 'x;
+    assign wrambus.wen   = if sel_wram ? wrambus.wen : 'x;
+
+    // rom
+    assign prombus.wdata = 0;
+    assign prombus.wen   = 0;
+
+    // Read bus decode
+    var sel_prom_d: logic;
+    var sel_wram_d: logic;
+
+    always_ff {
+        if_reset {
+            sel_prom_d = 0;
+            sel_wram_d = 0;
+        } else {
+            sel_prom_d = sel_prom;
+            sel_wram_d = sel_wram;
+        }
+    }
+
+    always_comb {
+        if (sel_prom_d) {
+            cpubus.rdata = prombus.rdata;
+        } else if (sel_wram_d) {
+            cpubus.rdata = wrambus.rdata;
+        } else {
+            cpubus.rdata = 'x;
+        }
+    }
+
+}

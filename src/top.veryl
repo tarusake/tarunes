@@ -1,0 +1,35 @@
+module top (
+    clk: input clock,
+    rst: input reset,
+) {
+    inst cpubus : bus_if::<8, 16>;
+    inst wrambus: bus_if::<8, 11>;
+    inst prombus: bus_if::<8, 15>;
+
+    inst cpu_inst: cpu (
+        clk   : clk   ,
+        rst   : rst   ,
+        cpubus: cpubus,
+    );
+
+    inst wram: memory::<8, 11> (
+        clk   : clk    ,
+        rst   : rst    ,
+        membus: wrambus,
+    );
+
+    inst prom: memory::<8, 15> (
+        clk   : clk    ,
+        rst   : rst    ,
+        membus: prombus,
+    );
+
+    inst ubus: bus (
+        clk    : clk    ,
+        rst    : rst    ,
+        cpubus : cpubus ,
+        prombus: prombus,
+        wrambus: wrambus,
+    );
+
+}

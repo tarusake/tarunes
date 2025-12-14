@@ -1,0 +1,6 @@
+[project]
+name = "tarunes"
+version = "0.1.0"
+[build]
+source = "src"
+target = {type = "directory", path = "target"}

@@ -1,0 +1,26 @@
+module memory::<DATA_WIDTH: u32, ADDR_WIDTH: u32> #(
+    param PATH: string = "",
+) (
+    clk   : input   clock                                  ,
+    rst   : input   reset                                  ,
+    membus: modport bus_if::<DATA_WIDTH, ADDR_WIDTH>::slave,
+) {
+    var mem: logic<DATA_WIDTH> [2 ** ADDR_WIDTH];
+
+    initial {
+        if PATH != "" {
+            $readmemh(PATH, mem);
+        }
+    }
+
+    always_ff {
+        if_reset {
+            membus.rdata = 0;
+        } else {
+            membus.rdata = mem[membus.addr];
+            if membus.wen {
+                mem[membus.addr] = membus.wdata;
+            }
+        }
+    }
+}
