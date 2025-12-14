@@ -16,6 +16,7 @@ module cpu (
 
     // opcode
     var opcode: logic<8>;
+    var op1   : logic<8>;
 
     // CPU Inst(only helloworld)
     enum opcode_t: logic<8> {
@@ -43,6 +44,8 @@ module cpu (
         RESET3,
         FETCH,
         DECODE,
+        OP1,
+        OP2,
         EXEC,
     }
     var state: cpu_state_t;
@@ -57,6 +60,8 @@ module cpu (
             cpu_state_t::RESET3: return "RESET3";
             cpu_state_t::FETCH : return "FETCH";
             cpu_state_t::DECODE: return "DECODE";
+            cpu_state_t::OP1   : return "OP1";
+            cpu_state_t::OP2   : return "OP2";
             cpu_state_t::EXEC  : return "EXEC";
         }
     }
@@ -132,10 +137,85 @@ module cpu (
                             reg_pc = reg_pc + 1;
                         }
 
+                        opcode_t::INX: {
+                            $display("[DECODE] PC=%04h OPCODE=INX", reg_pc);
+                            let result  : logic<8> = reg_x + 1;
+                            reg_x    = result;
+                            reg_p[1] = (result == 0);
+                            reg_p[7] = result[7];
+                            state    = cpu_state_t::FETCH;
+                            reg_pc   = reg_pc + 1;
+                        }
+
+                        opcode_t::DEY: {
+                            $display("[DECODE] PC=%04h OPCODE=DEY", reg_pc);
+                            let result  : logic<8> = reg_y - 1;
+                            reg_y    = result;
+                            reg_p[1] = (result == 0);
+                            reg_p[7] = result[7];
+                            state    = cpu_state_t::FETCH;
+                            reg_pc   = reg_pc + 1;
+                        }
+
                         // 即値命令
                         opcode_t::LDA_IMM,
-                        opcode_t::LDX_IMM : {
+                        opcode_t::LDX_IMM,
+                        opcode_t::LDY_IMM,
+                        opcode_t::BNE     : {
                             cpubus.addr = reg_pc + 1;
+                            mem_ready   = 1;
+                            if (mem_ready) {
+                                mem_ready = 0;
+                                state     = cpu_state_t::EXEC;
+                            }
+                        }
+
+                        // それ以上の命令
+                        opcode_t::STA_ABS,
+                        opcode_t::LDA_ABX,
+                        opcode_t::JMP_ABS : {
+                            cpubus.addr = reg_pc + 1;
+                            mem_ready   = 1;
+                            if (mem_ready) {
+                                mem_ready = 0;
+                                state     = cpu_state_t::OP1;
+                            }
+                        }
+
+                        default: {
+                            $display("[DECODE] Unknown Opcode : PC=%04h OPCODE=%02h", reg_pc, cpubus.rdata);
+                        }
+                    }
+                }
+
+                cpu_state_t::OP1: {
+                    case (opcode) {
+                        opcode_t::STA_ABS,
+                        opcode_t::JMP_ABS : {
+                            op1         = cpubus.rdata;
+                            cpubus.addr = reg_pc + 2;
+                            mem_ready   = 1;
+                            if (mem_ready) {
+                                mem_ready = 0;
+                                state     = cpu_state_t::EXEC;
+                            }
+                        }
+                        opcode_t::LDA_ABX: {
+                            op1         = cpubus.rdata;
+                            cpubus.addr = reg_pc + 2;
+                            mem_ready   = 1;
+                            if (mem_ready) {
+                                mem_ready = 0;
+                                state     = cpu_state_t::OP2;
+                            }
+                        }
+                    }
+                }
+
+                cpu_state_t::OP2: {
+                    case (opcode) {
+                        opcode_t::LDA_ABX: {
+                            cpubus.addr = {cpubus.rdata, op1} + reg_x;
                             mem_ready   = 1;
                             if (mem_ready) {
                                 mem_ready = 0;
@@ -144,15 +224,38 @@ module cpu (
                         }
                     }
                 }
+
                 cpu_state_t::EXEC: {
                     case (opcode) {
-                        opcode_t::LDA_IMM: {
-                            $display("[EXECUTE] PC=%04h LDA_IMM", reg_pc);
+                        // Z=0なら分岐する
+                        opcode_t::BNE: {
+                            $display("[EXECUTE] PC=%04h OPCODE=BNE", reg_pc);
+                            if (reg_p[1] == 0) {
+                                reg_pc = $signed(reg_pc) + 2 + {cpubus.rdata[7] repeat 8, cpubus.rdata};
+                            } else {
+                                reg_pc = reg_pc + 2;
+                            }
+                            state = cpu_state_t::FETCH;
+                        }
+
+                        opcode_t::JMP_ABS: {
+                            $display("[EXECUTE] PC=%04h OPCODE=JMP_ABS", reg_pc);
+                            reg_pc   = {cpubus.rdata, op1};
+                            state    = cpu_state_t::FETCH;
+                        }
+
+                        opcode_t::LDA_IMM,
+                        opcode_t::LDA_ABX : {
+                            $display("[EXECUTE] PC=%04h LDA_XXX", reg_pc);
                             reg_a    = cpubus.rdata;
                             reg_a[1] = (cpubus.rdata == 0);
                             reg_a[7] = cpubus.rdata[7];
-                            reg_pc   = reg_pc + 2;
-                            state    = cpu_state_t::FETCH;
+                            if (opcode == opcode_t::LDA_IMM) {
+                                reg_pc = reg_pc + 2;
+                            } else {
+                                reg_pc = reg_pc + 3;
+                            }
+                            state = cpu_state_t::FETCH;
                         }
                         opcode_t::LDX_IMM: {
                             $display("[EXECUTE] PC=%04h LDX_IMM", reg_pc);
@@ -162,10 +265,25 @@ module cpu (
                             reg_pc   = reg_pc + 2;
                             state    = cpu_state_t::FETCH;
                         }
+                        opcode_t::LDY_IMM: {
+                            $display("[EXECUTE] PC=%04h LDY_IMM", reg_pc);
+                            reg_y    = cpubus.rdata;
+                            reg_p[1] = (cpubus.rdata == 0);
+                            reg_p[7] = cpubus.rdata[7];
+                            reg_pc   = reg_pc + 2;
+                            state    = cpu_state_t::FETCH;
+                        }
+                        opcode_t::STA_ABS: {
+                            $display    ("[EXECUTE] PC=%04h OPCODE=STA_ABS", reg_pc);
+                            cpubus.addr  = {cpubus.rdata, op1};
+                            cpubus.wdata = reg_a;
+                            cpubus.wen   = 1'b1;
+                            reg_pc       = reg_pc + 3;
+                            state        = cpu_state_t::FETCH;
+                        }
                     }
                 }
             }
         }
     }
-
 }
