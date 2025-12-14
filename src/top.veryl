@@ -1,4 +1,6 @@
-module top (
+module top #(
+    param PROM_PATH: string = "",
+) (
     clk: input clock,
     rst: input reset,
 ) {
@@ -18,7 +20,9 @@ module top (
         membus: wrambus,
     );
 
-    inst prom: memory::<8, 15> (
+    inst prom: memory::<8, 15> #(
+        PATH: PROM_PATH,
+    ) (
         clk   : clk    ,
         rst   : rst    ,
         membus: prombus,

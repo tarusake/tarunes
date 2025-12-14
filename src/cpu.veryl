@@ -142,6 +142,10 @@ module cpu (
                                 state     = cpu_state_t::EXEC;
                             }
                         }
+
+                        default: {
+                            $display("[DECODE] Unknown Opcode : PC=%04h OPCODE=%02h", reg_pc, cpubus.rdata);
+                        }
                     }
                 }
                 cpu_state_t::EXEC: {
