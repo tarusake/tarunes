@@ -1,4 +1,4 @@
-module bus (
+module bus_cpu (
     clk    : input   clock                  ,
     rst    : input   reset                  ,
     cpubus : modport bus_if::<8, 16>::slave ,

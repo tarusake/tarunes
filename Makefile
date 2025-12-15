@@ -1,5 +1,5 @@
 VERILATOR      := verilator
-VERILATOR_FLAGS := -Wall --trace --Wno-fatal -GPROM_PATH=\"helloworld_prg.hex\"
+VERILATOR_FLAGS := -Wall --trace --Wno-fatal -GPROM_PATH=\"helloworld_prg.hex\" -GCROM_PATH=\"helloworld_chr.hex\"
 
 RTL_DIR  := target
 VERYL_PROJ:= tarunes
