@@ -1,0 +1,67 @@
+module ppu (
+    clk     : input  clock   ,
+    rst     : input  reset   ,
+    scanline: output logic<9>,
+    cycle   : output logic<9>,
+    pixel_r : output logic<8>,
+    pixel_g : output logic<8>,
+    pixel_b : output logic<8>,
+) {
+
+    var pixel_index  : logic<6> ;
+    var palette_color: logic<24>;
+
+    always_ff {
+        if_reset {
+            cycle    = 0;
+            scanline = 0;
+        } else {
+            if (cycle == 340) {
+                cycle = 0;
+                if (scanline == 261) {
+                    scanline = 0;
+                } else {
+                    scanline = scanline + 1;
+                }
+            } else {
+                cycle = cycle + 1;
+            }
+        }
+    }
+
+    // NES Palette (64 colors) - RGB332 format
+    const NES_PALETTE: logic<24> [64] = '{
+        24'h808080, 24'h003DA6, 24'h0012B0, 24'h440096,
+        24'hA1005E, 24'hC70028, 24'hBA0600, 24'h8C1700,
+        24'h5C2F00, 24'h104500, 24'h054A00, 24'h00472E,
+        24'h004166, 24'h000000, 24'h050505, 24'h050505,
+        24'hC7C7C7, 24'h0077FF, 24'h2155FF, 24'h8237FA,
+        24'hEB2FB5, 24'hFF2950, 24'hFF2200, 24'hD63200,
+        24'hC46200, 24'h358000, 24'h058F00, 24'h008A55,
+        24'h0099CC, 24'h212121, 24'h090909, 24'h090909,
+        24'hFFFFFF, 24'h0FD7FF, 24'h69A2FF, 24'hD480FF,
+        24'hFF45F3, 24'hFF618B, 24'hFF8833, 24'hFF9C12,
+        24'hFABC20, 24'h9FE30E, 24'h2BF035, 24'h0CF0A4,
+        24'h05FBFF, 24'h5E5E5E, 24'h0D0D0D, 24'h0D0D0D,
+        24'hFFFFFF, 24'hA6FCFF, 24'hB3ECFF, 24'hDAABEB,
+        24'hFFA8F9, 24'hFFABB3, 24'hFFD2B0, 24'hFFEFA6,
+        24'hFFF79C, 24'hD7E895, 24'hA6EDAF, 24'hA2F2DA,
+        24'h99FFFC, 24'hDDDDDD, 24'h111111, 24'h111111
+    };
+
+    always_comb {
+        if (cycle <: 256 && scanline <: 240) {
+            pixel_index = {2'b10, cycle[7:4]};
+        } else {
+            pixel_index = 'h0F;
+        }
+
+        // パレットルックアップ
+        palette_color = NES_PALETTE[pixel_index];
+
+        // 8ビットRGBに変換
+        pixel_r = {palette_color[23:16]};
+        pixel_g = {palette_color[15:8]};
+        pixel_b = {palette_color[7:0]};
+    }
+}

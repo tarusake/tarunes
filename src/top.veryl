@@ -1,8 +1,13 @@
 module top #(
     param PROM_PATH: string = "",
 ) (
-    clk: input clock,
-    rst: input reset,
+    clk     : input  clock   ,
+    rst     : input  reset   ,
+    scanline: output logic<9>,
+    cycle   : output logic<9>,
+    pixel_r : output logic<8>,
+    pixel_g : output logic<8>,
+    pixel_b : output logic<8>,
 ) {
     inst cpubus : bus_if::<8, 16>;
     inst wrambus: bus_if::<8, 11>;
@@ -36,4 +41,13 @@ module top #(
         wrambus: wrambus,
     );
 
+    inst ppu_inst: ppu (
+        clk     : clk     ,
+        rst     : rst     ,
+        scanline: scanline,
+        cycle   : cycle   ,
+        pixel_r : pixel_r ,
+        pixel_g : pixel_g ,
+        pixel_b : pixel_b ,
+    );
 }
