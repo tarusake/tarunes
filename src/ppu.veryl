@@ -1,0 +1,202 @@
+module ppu (
+    clk     : input   clock                     ,
+    rst     : input   reset                     ,
+    cpubus  : modport bus_if::<8, 3>::slave     ,
+    ppubus  : modport bus_if::<8, 14>::master   ,
+    scanline: output  logic                  <9>,
+    cycle   : output  logic                  <9>,
+    pixel_r : output  logic                  <8>,
+    pixel_g : output  logic                  <8>,
+    pixel_b : output  logic                  <8>,
+) {
+    var pixel_index  : logic<6> ;
+    var palette_color: logic<24>;
+
+    // VRAM Address Latch
+    var reg_w: logic    ;
+    var reg_v: logic<16>;
+
+    var palette_ram: logic<8> [32];
+
+    // ppubus.address mux
+    var ppu_addr_cpu   : logic<14>;
+    var ppu_addr_render: logic<14>;
+    assign ppubus.addr     = if ppubus.wen ? ppu_addr_cpu : ppu_addr_render;
+
+    // register bus
+    always_ff {
+        if_reset {
+            ppu_addr_cpu = 0;
+            ppubus.wen   = 0;
+            ppubus.wdata = 0;
+            reg_w        = 0;
+            reg_v        = 0;
+            for i: u32 in 0..31 {
+                palette_ram[i] = 0;
+            }
+        } else {
+            // default
+            ppubus.wen = 0;
+
+            if (cpubus.wen) {
+                case (cpubus.addr) {
+
+                    6: {
+                        reg_w = ~reg_w;
+                        if (!reg_w) {
+                            reg_v[15:8] = cpubus.wdata;
+                        } else {
+                            reg_v[7:0] = cpubus.wdata;
+                        }
+                    }
+
+                    7: {
+                        $display("[PPU WRITE] addr=%h data=%02h", reg_v, cpubus.wdata);
+                        // Palette RAM
+                        if (reg_v[15:8] == 8'h3F) {
+                            palette_ram[reg_v[4:0]] = cpubus.wdata;
+                        } else {
+                            ppubus.wen   = 1;
+                            ppu_addr_cpu = reg_v[13:0];
+                            ppubus.wdata = cpubus.wdata;
+                        }
+                        reg_v = reg_v + 1;
+                    }
+                }
+            }
+        }
+    }
+
+    always_ff {
+        if_reset {
+            cpubus.rdata = 0;
+        }
+    }
+
+    always_ff {
+        if_reset {
+            cycle    = 0;
+            scanline = 0;
+        } else {
+            if (cycle == 340) {
+                cycle = 0;
+                if (scanline == 261) {
+                    scanline = 0;
+                } else {
+                    scanline = scanline + 1;
+                }
+            } else {
+                cycle = cycle + 1;
+            }
+        }
+    }
+
+    var visible: logic;
+    assign visible = cycle <: 256 && scanline <: 240;
+
+    // キャラクタROMのアドレス
+    var chr_addr: logic<14>;
+
+    // キャラクタROMのデータ
+    var plane     : logic<8> [2];
+    var plane_draw: logic<8> [2];
+
+    // タイル情報と、次のタイル情報
+    var tile_x     : logic<6>;
+    var tile_y     : logic<6>;
+    var next_tile_x: logic<6>;
+    var next_tile_y: logic<6>;
+    assign tile_x      = cycle[8:3];
+    assign tile_y      = scanline[8:3];
+    assign next_tile_x = if (tile_x == 31) ? 0 : tile_x + 1;
+    assign next_tile_y = if (tile_x == 31) ? tile_y + 1 : tile_y;
+
+    // VRAMとキャラクタROMからデータを取ってくる
+    always_ff {
+        if_reset {
+            ppu_addr_render = 0;
+            chr_addr        = 0;
+            plane[0]        = 0;
+            plane[1]        = 0;
+            plane_draw[0]   = 0;
+            plane_draw[1]   = 0;
+        } else {
+            if (visible) {
+                case (cycle[2:0]) {
+                    0: {
+                        let nt_addr        : logic<14> = 14'h2000 + next_tile_y * 32 + next_tile_x;
+                        ppu_addr_render = nt_addr;
+                    }
+                    // 1: {}
+                    2: {
+                        let tile_id        : logic<8> = ppubus.rdata;
+                        ppu_addr_render = tile_id * 16 + scanline[2:0];
+                        chr_addr        = tile_id * 16 + scanline[2:0];
+                    }
+                    3: {
+                        ppu_addr_render = chr_addr + 8;
+                    }
+                    4: {
+                        plane[0] = ppubus.rdata;
+                    }
+                    5: {
+                        plane[1] = ppubus.rdata;
+                    }
+                    // 6: {}
+
+                    // レジスタに保存
+                    7: {
+                        plane_draw[0] = plane[0];
+                        plane_draw[1] = plane[1];
+                    }
+                }
+            }
+        }
+    }
+
+    var color_2bit: logic<2>;
+    var fine_x    : logic<3>;
+
+    // tile内のX座標0 -> {plane[1][7],plane[0][7]};
+    // tile内のX座標1 -> {plane[1][6],plane[0][6]};
+    // ...
+    // 保存していたROMデータをもとに1clkずつ情報をとりだす
+    assign fine_x     = 7 - cycle[2:0];
+    assign color_2bit = {plane_draw[1][fine_x], plane_draw[0][fine_x]};
+
+    // NES Palette (64 colors) - RGB332 format
+    const NES_PALETTE: logic<24> [64] = '{
+        24'h808080, 24'h003DA6, 24'h0012B0, 24'h440096,
+        24'hA1005E, 24'hC70028, 24'hBA0600, 24'h8C1700,
+        24'h5C2F00, 24'h104500, 24'h054A00, 24'h00472E,
+        24'h004166, 24'h000000, 24'h050505, 24'h050505,
+        24'hC7C7C7, 24'h0077FF, 24'h2155FF, 24'h8237FA,
+        24'hEB2FB5, 24'hFF2950, 24'hFF2200, 24'hD63200,
+        24'hC46200, 24'h358000, 24'h058F00, 24'h008A55,
+        24'h0099CC, 24'h212121, 24'h090909, 24'h090909,
+        24'hFFFFFF, 24'h0FD7FF, 24'h69A2FF, 24'hD480FF,
+        24'hFF45F3, 24'hFF618B, 24'hFF8833, 24'hFF9C12,
+        24'hFABC20, 24'h9FE30E, 24'h2BF035, 24'h0CF0A4,
+        24'h05FBFF, 24'h5E5E5E, 24'h0D0D0D, 24'h0D0D0D,
+        24'hFFFFFF, 24'hA6FCFF, 24'hB3ECFF, 24'hDAABEB,
+        24'hFFA8F9, 24'hFFABB3, 24'hFFD2B0, 24'hFFEFA6,
+        24'hFFF79C, 24'hD7E895, 24'hA6EDAF, 24'hA2F2DA,
+        24'h99FFFC, 24'hDDDDDD, 24'h111111, 24'h111111
+    };
+
+    always_comb {
+        if (cycle <: 256 && scanline <: 240) {
+            pixel_index = palette_ram[{2'b00, color_2bit}];
+        } else {
+            pixel_index = 'h0F;
+        }
+    }
+
+    // パレットルックアップ
+    assign palette_color = NES_PALETTE[pixel_index];
+
+    // 8ビットRGBに変換
+    assign pixel_r = {palette_color[23:16]};
+    assign pixel_g = {palette_color[15:8]};
+    assign pixel_b = {palette_color[7:0]};
+}

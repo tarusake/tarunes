@@ -1,0 +1,52 @@
+module bus_ppu (
+    clk    : input   clock                  ,
+    rst    : input   reset                  ,
+    ppubus : modport bus_if::<8, 14>::slave ,
+    crombus: modport bus_if::<8, 13>::master,
+    vrambus: modport bus_if::<8, 11>::master,
+) {
+
+    var sel_crom: logic;
+    var sel_vram: logic;
+
+    // Addr sel
+    assign sel_crom = ppubus.addr <: 16'h2000;
+    assign sel_vram = ppubus.addr >= 16'h2000 && ppubus.addr <: 16'h3F00;
+
+    // address assign
+    assign crombus.addr = if sel_crom ? ppubus.addr : 'x;
+    assign vrambus.addr = if sel_vram ? ppubus.addr : 'x;
+
+    // Write bus assign
+    assign vrambus.wdata = if sel_vram ? ppubus.wdata : 'x;
+    assign vrambus.wen   = if sel_vram ? ppubus.wen : 'x;
+
+    // rom
+    assign crombus.wdata = 0;
+    assign crombus.wen   = 0;
+
+    // Read bus decode
+    var sel_crom_d: logic;
+    var sel_vram_d: logic;
+
+    always_ff {
+        if_reset {
+            sel_crom_d = 0;
+            sel_vram_d = 0;
+        } else {
+            sel_crom_d = sel_crom;
+            sel_vram_d = sel_vram;
+        }
+    }
+
+    always_comb {
+        if (sel_crom_d) {
+            ppubus.rdata = crombus.rdata;
+        } else if (sel_vram_d) {
+            ppubus.rdata = vrambus.rdata;
+        } else {
+            ppubus.rdata = 'x;
+        }
+    }
+
+}
