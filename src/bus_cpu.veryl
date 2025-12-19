@@ -1,25 +1,31 @@
 module bus_cpu (
-    clk    : input   clock                  ,
-    rst    : input   reset                  ,
-    cpubus : modport bus_if::<8, 16>::slave ,
-    wrambus: modport bus_if::<8, 11>::master,
-    prombus: modport bus_if::<8, 15>::master,
+    clk       : input   clock                  ,
+    rst       : input   reset                  ,
+    cpubus    : modport bus_if::<8, 16>::slave ,
+    cpu_ppubus: modport bus_if::<8, 3>::master ,
+    wrambus   : modport bus_if::<8, 11>::master,
+    prombus   : modport bus_if::<8, 15>::master,
 ) {
 
+    var sel_ppu : logic;
     var sel_prom: logic;
     var sel_wram: logic;
 
     // Addr sel
     assign sel_wram = cpubus.addr <: 16'h2000;
+    assign sel_ppu  = cpubus.addr >= 16'h2000 && cpubus.addr <= 16'h2007;
     assign sel_prom = cpubus.addr >= 16'h8000;
 
     // address assign
-    assign prombus.addr = if sel_prom ? cpubus.addr : 'x;
-    assign wrambus.addr = if sel_wram ? cpubus.addr : 'x;
+    assign prombus.addr    = if sel_prom ? cpubus.addr : 'x;
+    assign cpu_ppubus.addr = if sel_ppu ? cpubus.addr : 'x;
+    assign wrambus.addr    = if sel_wram ? cpubus.addr : 'x;
 
     // Write bus assign
-    assign wrambus.wdata = if sel_wram ? cpubus.wdata : 'x;
-    assign wrambus.wen   = if sel_wram ? cpubus.wen : 'x;
+    assign wrambus.wdata    = if sel_wram ? cpubus.wdata : 'x;
+    assign wrambus.wen      = if sel_wram ? cpubus.wen : 'x;
+    assign cpu_ppubus.wdata = if sel_ppu ? cpubus.wdata : 'x;
+    assign cpu_ppubus.wen   = if sel_ppu ? cpubus.wen : 'x;
 
     // rom
     assign prombus.wdata = 0;
@@ -27,14 +33,17 @@ module bus_cpu (
 
     // Read bus decode
     var sel_prom_d: logic;
+    var sel_ppu_d : logic;
     var sel_wram_d: logic;
 
     always_ff {
         if_reset {
             sel_prom_d = 0;
+            sel_ppu_d  = 0;
             sel_wram_d = 0;
         } else {
             sel_prom_d = sel_prom;
+            sel_ppu_d  = sel_ppu;
             sel_wram_d = sel_wram;
         }
     }
@@ -42,6 +51,8 @@ module bus_cpu (
     always_comb {
         if (sel_prom_d) {
             cpubus.rdata = prombus.rdata;
+        } else if (sel_ppu_d) {
+            cpubus.rdata = cpu_ppubus.rdata;
         } else if (sel_wram_d) {
             cpubus.rdata = wrambus.rdata;
         } else {

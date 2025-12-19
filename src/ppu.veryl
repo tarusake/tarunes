@@ -1,15 +1,72 @@
 module ppu (
-    clk     : input  clock   ,
-    rst     : input  reset   ,
-    scanline: output logic<9>,
-    cycle   : output logic<9>,
-    pixel_r : output logic<8>,
-    pixel_g : output logic<8>,
-    pixel_b : output logic<8>,
+    clk     : input   clock                     ,
+    rst     : input   reset                     ,
+    cpubus  : modport bus_if::<8, 3>::slave     ,
+    ppubus  : modport bus_if::<8, 14>::master   ,
+    scanline: output  logic                  <9>,
+    cycle   : output  logic                  <9>,
+    pixel_r : output  logic                  <8>,
+    pixel_g : output  logic                  <8>,
+    pixel_b : output  logic                  <8>,
 ) {
-
     var pixel_index  : logic<6> ;
     var palette_color: logic<24>;
+
+    // VRAM Address Latch
+    var reg_w: logic    ;
+    var reg_v: logic<16>;
+
+    var palette_ram: logic<8> [32];
+
+    // register bus
+    always_ff {
+        if_reset {
+            ppubus.addr  = 0;
+            ppubus.wen   = 0;
+            ppubus.wdata = 0;
+            reg_w        = 0;
+            reg_v        = 0;
+            for i: u32 in 0..31 {
+                palette_ram[i] = 0;
+            }
+        } else {
+            // default
+            ppubus.wen = 0;
+
+            if (cpubus.wen) {
+                case (cpubus.addr) {
+
+                    6: {
+                        reg_w = ~reg_w;
+                        if (!reg_w) {
+                            reg_v[15:8] = cpubus.wdata;
+                        } else {
+                            reg_v[7:0] = cpubus.wdata;
+                        }
+                    }
+
+                    7: {
+                        $display("[PPU WRITE] addr=%h data=%02h", reg_v, cpubus.wdata);
+                        // Palette RAM
+                        if (reg_v[15:8] == 8'h3F) {
+                            palette_ram[reg_v[4:0]] = cpubus.wdata;
+                        } else {
+                            ppubus.wen   = 1;
+                            ppubus.addr  = reg_v[13:0];
+                            ppubus.wdata = cpubus.wdata;
+                        }
+                        reg_v = reg_v + 1;
+                    }
+                }
+            }
+        }
+    }
+
+    always_ff {
+        if_reset {
+            cpubus.rdata = 0;
+        }
+    }
 
     always_ff {
         if_reset {
