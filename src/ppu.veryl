@@ -18,10 +18,15 @@ module ppu (
 
     var palette_ram: logic<8> [32];
 
+    // ppubus.address mux
+    var ppu_addr_cpu   : logic<14>;
+    var ppu_addr_render: logic<14>;
+    assign ppubus.addr     = if ppubus.wen ? ppu_addr_cpu : ppu_addr_render;
+
     // register bus
     always_ff {
         if_reset {
-            ppubus.addr  = 0;
+            ppu_addr_cpu = 0;
             ppubus.wen   = 0;
             ppubus.wdata = 0;
             reg_w        = 0;
@@ -52,7 +57,7 @@ module ppu (
                             palette_ram[reg_v[4:0]] = cpubus.wdata;
                         } else {
                             ppubus.wen   = 1;
-                            ppubus.addr  = reg_v[13:0];
+                            ppu_addr_cpu = reg_v[13:0];
                             ppubus.wdata = cpubus.wdata;
                         }
                         reg_v = reg_v + 1;
@@ -109,26 +114,27 @@ module ppu (
     // VRAMとキャラクタROMからデータを取ってくる
     always_ff {
         if_reset {
-            chr_addr      = 0;
-            plane[0]      = 0;
-            plane[1]      = 0;
-            plane_draw[0] = 0;
-            plane_draw[1] = 0;
+            ppu_addr_render = 0;
+            chr_addr        = 0;
+            plane[0]        = 0;
+            plane[1]        = 0;
+            plane_draw[0]   = 0;
+            plane_draw[1]   = 0;
         } else {
             if (visible) {
                 case (cycle[2:0]) {
                     0: {
-                        let nt_addr    : logic<14> = 14'h2000 + next_tile_y * 32 + next_tile_x;
-                        ppubus.addr = nt_addr;
+                        let nt_addr        : logic<14> = 14'h2000 + next_tile_y * 32 + next_tile_x;
+                        ppu_addr_render = nt_addr;
                     }
                     // 1: {}
                     2: {
-                        let tile_id    : logic<8> = ppubus.rdata;
-                        ppubus.addr = tile_id * 16 + scanline[2:0];
-                        chr_addr    = tile_id * 16 + scanline[2:0];
+                        let tile_id        : logic<8> = ppubus.rdata;
+                        ppu_addr_render = tile_id * 16 + scanline[2:0];
+                        chr_addr        = tile_id * 16 + scanline[2:0];
                     }
                     3: {
-                        ppubus.addr = chr_addr + 8;
+                        ppu_addr_render = chr_addr + 8;
                     }
                     4: {
                         plane[0] = ppubus.rdata;
