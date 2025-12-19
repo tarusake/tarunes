@@ -11,3 +11,8 @@ obj_dir/
 # nes
 *.nes
 *.hex
+
+# Temporary files
+*.log
+*.bmp
+

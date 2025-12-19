@@ -86,6 +86,78 @@ module ppu (
         }
     }
 
+    var visible: logic;
+    assign visible = cycle <: 256 && scanline <: 240;
+
+    // キャラクタROMのアドレス
+    var chr_addr: logic<14>;
+
+    // キャラクタROMのデータ
+    var plane     : logic<8> [2];
+    var plane_draw: logic<8> [2];
+
+    // タイル情報と、次のタイル情報
+    var tile_x     : logic<6>;
+    var tile_y     : logic<6>;
+    var next_tile_x: logic<6>;
+    var next_tile_y: logic<6>;
+    assign tile_x      = cycle[8:3];
+    assign tile_y      = scanline[8:3];
+    assign next_tile_x = if (tile_x == 31) ? 0 : tile_x + 1;
+    assign next_tile_y = if (tile_x == 31) ? tile_y + 1 : tile_y;
+
+    // VRAMとキャラクタROMからデータを取ってくる
+    always_ff {
+        if_reset {
+            chr_addr      = 0;
+            plane[0]      = 0;
+            plane[1]      = 0;
+            plane_draw[0] = 0;
+            plane_draw[1] = 0;
+        } else {
+            if (visible) {
+                case (cycle[2:0]) {
+                    0: {
+                        let nt_addr    : logic<14> = 14'h2000 + next_tile_y * 32 + next_tile_x;
+                        ppubus.addr = nt_addr;
+                    }
+                    // 1: {}
+                    2: {
+                        let tile_id    : logic<8> = ppubus.rdata;
+                        ppubus.addr = tile_id * 16 + scanline[2:0];
+                        chr_addr    = tile_id * 16 + scanline[2:0];
+                    }
+                    3: {
+                        ppubus.addr = chr_addr + 8;
+                    }
+                    4: {
+                        plane[0] = ppubus.rdata;
+                    }
+                    5: {
+                        plane[1] = ppubus.rdata;
+                    }
+                    // 6: {}
+
+                    // レジスタに保存
+                    7: {
+                        plane_draw[0] = plane[0];
+                        plane_draw[1] = plane[1];
+                    }
+                }
+            }
+        }
+    }
+
+    var color_2bit: logic<2>;
+    var fine_x    : logic<3>;
+
+    // tile内のX座標0 -> {plane[1][7],plane[0][7]};
+    // tile内のX座標1 -> {plane[1][6],plane[0][6]};
+    // ...
+    // 保存していたROMデータをもとに1clkずつ情報をとりだす
+    assign fine_x     = 7 - cycle[2:0];
+    assign color_2bit = {plane_draw[1][fine_x], plane_draw[0][fine_x]};
+
     // NES Palette (64 colors) - RGB332 format
     const NES_PALETTE: logic<24> [64] = '{
         24'h808080, 24'h003DA6, 24'h0012B0, 24'h440096,
@@ -108,17 +180,17 @@ module ppu (
 
     always_comb {
         if (cycle <: 256 && scanline <: 240) {
-            pixel_index = {2'b10, cycle[7:4]};
+            pixel_index = palette_ram[{2'b00, color_2bit}];
         } else {
             pixel_index = 'h0F;
         }
-
-        // パレットルックアップ
-        palette_color = NES_PALETTE[pixel_index];
-
-        // 8ビットRGBに変換
-        pixel_r = {palette_color[23:16]};
-        pixel_g = {palette_color[15:8]};
-        pixel_b = {palette_color[7:0]};
     }
+
+    // パレットルックアップ
+    assign palette_color = NES_PALETTE[pixel_index];
+
+    // 8ビットRGBに変換
+    assign pixel_r = {palette_color[23:16]};
+    assign pixel_g = {palette_color[15:8]};
+    assign pixel_b = {palette_color[7:0]};
 }
