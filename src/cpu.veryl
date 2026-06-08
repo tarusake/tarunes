@@ -66,7 +66,7 @@ module cpu (
         }
     }
 
-    let state_debug: logic<64> = debug_cpu_state_str(state);
+    let _state_debug: logic<64> = debug_cpu_state_str(state);
 
     always_ff {
         if_reset {
@@ -82,6 +82,7 @@ module cpu (
             reg_pc       = 0;
             mem_ready    = 0;
             opcode       = 0;
+            op1          = 0;
         } else {
             case state {
                 // 0xFFFCをセット
@@ -158,10 +159,7 @@ module cpu (
                         }
 
                         // 即値命令
-                        opcode_t::LDA_IMM,
-                        opcode_t::LDX_IMM,
-                        opcode_t::LDY_IMM,
-                        opcode_t::BNE     : {
+                        opcode_t::LDA_IMM, opcode_t::LDX_IMM, opcode_t::LDY_IMM, opcode_t::BNE: {
                             cpubus.addr = reg_pc + 1;
                             mem_ready   = 1;
                             if (mem_ready) {
@@ -171,9 +169,7 @@ module cpu (
                         }
 
                         // それ以上の命令
-                        opcode_t::STA_ABS,
-                        opcode_t::LDA_ABX,
-                        opcode_t::JMP_ABS : {
+                        opcode_t::STA_ABS, opcode_t::LDA_ABX, opcode_t::JMP_ABS: {
                             cpubus.addr = reg_pc + 1;
                             mem_ready   = 1;
                             if (mem_ready) {
@@ -190,8 +186,7 @@ module cpu (
 
                 cpu_state_t::OP1: {
                     case (opcode) {
-                        opcode_t::STA_ABS,
-                        opcode_t::JMP_ABS : {
+                        opcode_t::STA_ABS, opcode_t::JMP_ABS: {
                             op1         = cpubus.rdata;
                             cpubus.addr = reg_pc + 2;
                             mem_ready   = 1;
@@ -244,8 +239,7 @@ module cpu (
                             state    = cpu_state_t::FETCH;
                         }
 
-                        opcode_t::LDA_IMM,
-                        opcode_t::LDA_ABX : {
+                        opcode_t::LDA_IMM, opcode_t::LDA_ABX: {
                             $display("[EXECUTE] PC=%04h LDA_XXX", reg_pc);
                             reg_a    = cpubus.rdata;
                             reg_p[1] = (cpubus.rdata == 0);
