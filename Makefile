@@ -1,5 +1,9 @@
 VERILATOR      := verilator
-VERILATOR_FLAGS := -Wall --trace --Wno-fatal -GPROM_PATH=\"helloworld_prg.hex\" -GCROM_PATH=\"helloworld_chr.hex\"
+ROM            ?= helloworld
+NES_ROM        := $(ROM).nes
+PRG_HEX        := $(ROM)_prg.hex
+CHR_HEX        := $(ROM)_chr.hex
+VERILATOR_FLAGS := -Wall --trace --Wno-fatal -GPROM_PATH=\"$(PRG_HEX)\" -GCROM_PATH=\"$(CHR_HEX)\"
 
 RTL_DIR  := target
 VERYL_PROJ:= tarunes
@@ -17,7 +21,12 @@ veryl-fmt:
 veryl-build: veryl-fmt
 	veryl build
 
-build: veryl-build
+rom: $(PRG_HEX) $(CHR_HEX)
+
+$(PRG_HEX) $(CHR_HEX): $(NES_ROM) nes2hex.py
+	./nes2hex.py $(NES_ROM)
+
+build: veryl-build rom
 	$(VERILATOR) $(VERILATOR_FLAGS) \
 		--cc \
 		-f $(VERYL_PROJ).f \
@@ -29,10 +38,10 @@ build: veryl-build
 
 	make -C obj_dir -f V$(TOP).mk
 
-run:
+run: build
 	./obj_dir/V$(TOP)
 
 clean:
 	rm -rf obj_dir target *.vcd
 
-.PHONY: all build run clean veryl-fmt veryl-build
+.PHONY: all build run clean veryl-fmt veryl-build rom

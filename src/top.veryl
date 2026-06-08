@@ -19,25 +19,11 @@ module top #(
     inst vrambus: bus_if::<8, 11>;
     inst crombus: bus_if::<8, 13>;
 
-    inst cpu_inst: cpu (
-        clk   : clk   ,
-        rst   : rst   ,
-        cpubus: cpubus,
-    );
+    inst cpu_inst: cpu ( clk: clk, rst: rst, cpubus: cpubus );
 
-    inst wram: memory::<8, 11> (
-        clk   : clk    ,
-        rst   : rst    ,
-        membus: wrambus,
-    );
+    inst wram: memory::<8, 11> ( clk: clk, rst: rst, membus: wrambus );
 
-    inst prom: memory::<8, 15> #(
-        PATH: PROM_PATH,
-    ) (
-        clk   : clk    ,
-        rst   : rst    ,
-        membus: prombus,
-    );
+    inst prom: memory::<8, 15> #( PATH: PROM_PATH ) ( clk: clk, rst: rst, membus: prombus );
 
     inst ubus_cpu: bus_cpu (
         clk       : clk       ,
@@ -60,26 +46,10 @@ module top #(
         pixel_b : pixel_b   ,
     );
 
-    inst ubus_ppu: bus_ppu (
-        clk    : clk    ,
-        rst    : rst    ,
-        ppubus : ppubus ,
-        crombus: crombus,
-        vrambus: vrambus,
-    );
+    inst ubus_ppu: bus_ppu ( clk: clk, rst: rst, ppubus: ppubus, crombus: crombus, vrambus: vrambus );
 
-    inst vram: memory::<8, 11> (
-        clk   : clk    ,
-        rst   : rst    ,
-        membus: vrambus,
-    );
+    inst vram: memory::<8, 11> ( clk: clk, rst: rst, membus: vrambus );
 
-    inst crom: memory::<8, 13> #(
-        PATH: CROM_PATH,
-    ) (
-        clk   : clk    ,
-        rst   : rst    ,
-        membus: crombus,
-    );
+    inst crom: memory::<8, 13> #( PATH: CROM_PATH ) ( clk: clk, rst: rst, membus: crombus );
 
 }

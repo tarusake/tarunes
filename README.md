@@ -1,22 +1,24 @@
 # tarunes
 
-Veryl で記述された NES互換のCPUとPPU、バス・メモリを含むハードウェア設計プロジェクトです。
-6502を参考にしたCPUアーキテクチャと、NESのPPUアーキテクチャを模倣しており、Verilatorを用いたシミュレーションが可能です。
+Veryl で記述された NES 互換の CPU / PPU / バス / メモリを含むハードウェア設計プロジェクトです。
+6502 を参考にした CPU と NES 風の PPU を Verilator でシミュレーションし、SDL2 ウィンドウに 256x240 の映像を表示できます。
+
+現在の実装は検証用 ROM を動かすための最小構成です。CPU 命令や PPU レジスタは段階的に実装中です。
 
 ## プロジェクト構造
 
-```
+```text
 tarunes/
-├── Veryl.toml          # プロジェクト設定
-├── Makefile            # ビルド・シミュレーション用 Makefile
-├── nes2hex.py          # NES ROMからHEXファイルへの変換スクリプト
+├── Veryl.toml          # Veryl プロジェクト設定
+├── Makefile            # ビルド / ROM 変換 / シミュレーション用 Makefile
+├── nes2hex.py          # iNES ROM から PRG / CHR HEX への変換スクリプト
 ├── src/
 │   ├── top.veryl       # トップモジュール
-│   ├── cpu.veryl       # CPU コア (6502互換)
+│   ├── cpu.veryl       # CPU コア
 │   ├── ppu.veryl       # Picture Processing Unit (PPU)
-│   ├── bus_cpu.veryl   # CPUバスアービタ
-│   ├── bus_ppu.veryl   # PPUバスアービタ
-│   ├── bus_if.veryl    # バスインターフェース定義
+│   ├── bus_cpu.veryl   # CPU バスデコーダ
+│   ├── bus_ppu.veryl   # PPU バスデコーダ
+│   ├── bus_if.veryl    # バスインターフェース
 │   ├── memory.veryl    # メモリモジュール
 │   ├── tb_top.sv       # SystemVerilog テストベンチ
 │   └── tb_top.cpp      # C++ テストベンチドライバ
@@ -27,59 +29,148 @@ tarunes/
 ## 必要条件
 
 - [Verilator](https://www.veripool.org/verilator/) (5.0 以上)
-- [Veryl](https://github.com/veryl-lang/veryl) (プロジェクトのビルドに使用)
+- [Veryl](https://github.com/veryl-lang/veryl) (0.20.1)
+- SDL2 開発パッケージ (`sdl2-config` が使えること)
 - GNU Make
-- GCC または Clang
+- C++17 に対応した GCC または Clang
+
+Ubuntu / Debian 系の例:
+
+```bash
+sudo apt install verilator libsdl2-dev make g++
+```
+
+### Veryl のインストール
+
+Veryl は公式の toolchain installer である `verylup` でインストールできます。
+このプロジェクトでは Veryl `0.20.1` を使用しています。
+
+Cargo を使う場合:
+
+```bash
+cargo install verylup
+verylup setup
+verylup install 0.20.1
+verylup default 0.20.1
+veryl --version
+```
+
+`verylup setup` は初回のみ必要です。
+`veryl --version` で `veryl 0.20.1` と表示されれば準備完了です。
+
+最新の toolchain に更新する場合:
+
+```bash
+verylup update
+```
+
+`verylup` はリリースページからバイナリをダウンロードして `PATH` の通った場所に配置する方法でもインストールできます。
+詳細は [verylup: Veryl toolchain installer](https://veryl-lang.org/blog/verylup-veryl-toolchain-installer/) を参照してください。
 
 ## ビルド方法
 
-makeコマンドで以下を実行できます。
-- Veryl で RTL (SystemVerilog) を生成
-- Verilator でシミュレータをビルド
+リポジトリ直下に `<ROM名>.nes` を置いてから `make` を実行します。
+デフォルトでは `helloworld.nes` を入力にして、`helloworld_prg.hex` と `helloworld_chr.hex` を生成します。
 
 ```bash
 make
 ```
 
+別の ROM を使う場合は、拡張子を除いた名前を `ROM` に指定します。
+
+```bash
+make ROM=sample
+```
+
+この場合、`sample.nes` から `sample_prg.hex` と `sample_chr.hex` が生成され、Verilator の `PROM_PATH` / `CROM_PATH` パラメータに渡されます。
+
 ## シミュレーション実行
 
-ビルド後、テストベンチを実行して波形を取得できます:
+ビルドとシミュレーションをまとめて実行できます。
 
 ```bash
 make run
 ```
 
-波形ファイル `wave.vcd` が生成されます。GTKWave などのツールで可視化できます。
+実行すると SDL2 ウィンドウに 256x240 の画面が 2 倍スケールで表示され、10 フレーム分シミュレーションします。
+同時に波形ファイル `wave.vcd` が生成されます。GTKWave などのツールで可視化できます。
+
+別の ROM を実行する場合:
+
+```bash
+make run ROM=sample
+```
+
+生成物を削除する場合:
+
+```bash
+make clean
+```
+
+## ROM ファイル生成
+
+NES の ROM ファイル (`.nes`) を、シミュレーションで読み込む HEX 形式に変換できます。
+
+```bash
+./nes2hex.py <input.nes>
+```
+
+例:
+
+```bash
+./nes2hex.py helloworld.nes
+```
+
+出力:
+
+- `helloworld_prg.hex`: CPU 側の PRG ROM
+- `helloworld_chr.hex`: PPU 側の CHR ROM
+
+CHR RAM タイプの ROM は CHR ROM を含まないため、`*_chr.hex` は生成されません。
 
 ## PPU (Picture Processing Unit)
 
-このプロジェクトには、NESのグラフィックス処理を担当するPPUの実装が含まれています。`src/ppu.veryl` は以下の機能を提供します：
+`src/ppu.veryl` は以下の機能を提供します。
 
 - バックグラウンドレンダリング
-- VRAMアクセス制御
-- 画面出力のタイミング生成
+- VRAM / CHR ROM アクセス制御
+- Palette RAM と NES パレットによる RGB 出力
+- 画面出力タイミング生成
 
-PPUはCPUと独立したクロックで動作し、バスを介してCPUと通信します。詳細な仕様はNESのPPUアーキテクチャを参考にしています。
+CPU からは `$2006` / `$2007` 相当のレジスタ経由で VRAM / Palette RAM にアクセスします。PPU のレンダリング経路は CHR ROM と VRAM を参照し、トップモジュールから `pixel_r` / `pixel_g` / `pixel_b` を出力します。
+
+## CPU
+
+`src/cpu.veryl` は、検証用 ROM を動かすために必要な 6502 系命令を部分的に実装しています。
+
+- `SEI`
+- `TXS`
+- `INX`
+- `DEY`
+- `LDA #imm`
+- `LDX #imm`
+- `LDY #imm`
+- `STA abs`
+- `LDA abs,X`
+- `BNE`
+- `JMP abs`
+
+未実装命令はログに Unknown Opcode として表示されます。
+
+## メモリマップ
+
+CPU 側:
+
+- `$0000-$1FFF`: WRAM
+- `$2000-$2007`: PPU レジスタ
+- `$8000-$FFFF`: PRG ROM
+
+PPU 側:
+
+- `$0000-$1FFF`: CHR ROM
+- `$2000-$3EFF`: VRAM
+- `$3F00-$3F1F`: Palette RAM
 
 ## ライセンス
 
 このプロジェクトは MIT ライセンスの下で公開されています。
-
-## ROMファイル生成
-
-NESのROMファイル（.nes形式）をシミュレーションで使用できるHEX形式に変換するスクリプトを提供しています。
-
-### 使用方法
-
-```bash
-./nes2hex.py <input.nes> [output.hex]
-```
-
-- `input.nes`: 入力となるNES ROMファイル
-- `output.hex`: 出力ファイル名（省略時は`input.hex`）
-
-### 例
-
-```bash
-# helloworld.nes を helloworld.hex に変換
-./nes2hex.py ./helloworld.nes

@@ -16,3 +16,7 @@ obj_dir/
 *.log
 *.bmp
 
+# Veryl Library
+core/dependencies/
+core/target/
+Veryl.lock
