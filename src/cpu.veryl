@@ -44,23 +44,22 @@ module cpu (
 
     struct decode_entry_t {
         opcode   : logic      <8> ,
-        is_valid : logic          ,
         inst_kind: inst_t         ,
         mode     : addr_mode_t    ,
         len      : logic      <16>,
     }
     const DECODE_TABLE: decode_entry_t [11] = '{
-        decode_entry_t'{opcode: 8'h78, is_valid: 1, inst_kind: inst_t::SEI, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'h9A, is_valid: 1, inst_kind: inst_t::TXS, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'hE8, is_valid: 1, inst_kind: inst_t::INX, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'h88, is_valid: 1, inst_kind: inst_t::DEY, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'hA9, is_valid: 1, inst_kind: inst_t::LDA, mode: addr_mode_t::IMM, len: 2,},
-        decode_entry_t'{opcode: 8'hBD, is_valid: 1, inst_kind: inst_t::LDA, mode: addr_mode_t::ABSX, len: 3,},
-        decode_entry_t'{opcode: 8'hA2, is_valid: 1, inst_kind: inst_t::LDX, mode: addr_mode_t::IMM, len: 2,},
-        decode_entry_t'{opcode: 8'hA0, is_valid: 1, inst_kind: inst_t::LDY, mode: addr_mode_t::IMM, len: 2,},
-        decode_entry_t'{opcode: 8'h8D, is_valid: 1, inst_kind: inst_t::STA, mode: addr_mode_t::ABS, len: 3,},
-        decode_entry_t'{opcode: 8'hD0, is_valid: 1, inst_kind: inst_t::BNE, mode: addr_mode_t::REL, len: 2,},
-        decode_entry_t'{opcode: 8'h4C, is_valid: 1, inst_kind: inst_t::JMP, mode: addr_mode_t::ABS, len: 3,},
+        decode_entry_t'{opcode: 8'h78, inst_kind: inst_t::SEI, mode: addr_mode_t::IMPLIED, len: 1,},
+        decode_entry_t'{opcode: 8'h9A, inst_kind: inst_t::TXS, mode: addr_mode_t::IMPLIED, len: 1,},
+        decode_entry_t'{opcode: 8'hE8, inst_kind: inst_t::INX, mode: addr_mode_t::IMPLIED, len: 1,},
+        decode_entry_t'{opcode: 8'h88, inst_kind: inst_t::DEY, mode: addr_mode_t::IMPLIED, len: 1,},
+        decode_entry_t'{opcode: 8'hA9, inst_kind: inst_t::LDA, mode: addr_mode_t::IMM, len: 2,},
+        decode_entry_t'{opcode: 8'hBD, inst_kind: inst_t::LDA, mode: addr_mode_t::ABSX, len: 3,},
+        decode_entry_t'{opcode: 8'hA2, inst_kind: inst_t::LDX, mode: addr_mode_t::IMM, len: 2,},
+        decode_entry_t'{opcode: 8'hA0, inst_kind: inst_t::LDY, mode: addr_mode_t::IMM, len: 2,},
+        decode_entry_t'{opcode: 8'h8D, inst_kind: inst_t::STA, mode: addr_mode_t::ABS, len: 3,},
+        decode_entry_t'{opcode: 8'hD0, inst_kind: inst_t::BNE, mode: addr_mode_t::REL, len: 2,},
+        decode_entry_t'{opcode: 8'h4C, inst_kind: inst_t::JMP, mode: addr_mode_t::ABS, len: 3,},
     };
 
     enum cpu_state_t {
@@ -98,7 +97,6 @@ module cpu (
     ) -> decode_entry_t {
         var ret          : decode_entry_t;
         ret.opcode    = raw_opcode;
-        ret.is_valid  = 0;
         ret.inst_kind = inst_t::INVALID;
         ret.mode      = addr_mode_t::IMPLIED;
         ret.len       = 1;
@@ -175,7 +173,7 @@ module cpu (
                     addr_mode    = decode_entry.mode;
                     inst_len     = decode_entry.len;
 
-                    if (!decode_entry.is_valid) {
+                    if (decode_entry.inst_kind == inst_t::INVALID) {
                         $display("[DECODE] Unknown Opcode : PC=%04h OPCODE=%02h", reg_pc, decode_entry.opcode);
                     } else {
                         case (decode_entry.mode) {
