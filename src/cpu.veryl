@@ -180,7 +180,48 @@ module cpu (
                     } else {
                         case (decode_entry.mode) {
                             addr_mode_t::IMPLIED: {
-                                state = cpu_state_t::EXEC;
+                                case (decode_entry.inst_kind) {
+                                    // IRQフラグ無効
+                                    // ただし割り込み未実装のため現時点では意味はない
+                                    inst_t::SEI: {
+                                        $display("[DECODE] PC=%04h OPCODE=SEI", reg_pc);
+                                        reg_p[2] = 1'b1;
+                                        state    = cpu_state_t::FETCH;
+                                        reg_pc   = reg_pc + decode_entry.len;
+                                    }
+
+                                    inst_t::TXS: {
+                                        $display("[DECODE] PC=%04h OPCODE=TXS", reg_pc);
+                                        reg_sp   = reg_x;
+                                        // TXSはフラグ更新しない
+                                        state  = cpu_state_t::FETCH;
+                                        reg_pc = reg_pc + decode_entry.len;
+                                    }
+
+                                    inst_t::INX: {
+                                        $display("[DECODE] PC=%04h OPCODE=INX", reg_pc);
+                                        let result  : logic<8> = reg_x + 1;
+                                        reg_x    = result;
+                                        reg_p[1] = (result == 0);
+                                        reg_p[7] = result[7];
+                                        state    = cpu_state_t::FETCH;
+                                        reg_pc   = reg_pc + decode_entry.len;
+                                    }
+
+                                    inst_t::DEY: {
+                                        $display("[DECODE] PC=%04h OPCODE=DEY", reg_pc);
+                                        let result  : logic<8> = reg_y - 1;
+                                        reg_y    = result;
+                                        reg_p[1] = (result == 0);
+                                        reg_p[7] = result[7];
+                                        state    = cpu_state_t::FETCH;
+                                        reg_pc   = reg_pc + decode_entry.len;
+                                    }
+
+                                    default: {
+                                        state = cpu_state_t::FETCH;
+                                    }
+                                }
                             }
                             addr_mode_t::IMM, addr_mode_t::REL: {
                                 cpubus.addr = reg_pc + 1;
@@ -250,43 +291,6 @@ module cpu (
 
                 cpu_state_t::EXEC: {
                     case (decoded_inst) {
-                        // IRQフラグ無効
-                        // ただし割り込み未実装のため現時点では意味はない
-                        inst_t::SEI: {
-                            $display("[EXECUTE] PC=%04h OPCODE=SEI", reg_pc);
-                            reg_p[2] = 1'b1;
-                            state    = cpu_state_t::FETCH;
-                            reg_pc   = reg_pc + inst_len;
-                        }
-
-                        inst_t::TXS: {
-                            $display("[EXECUTE] PC=%04h OPCODE=TXS", reg_pc);
-                            reg_sp   = reg_x;
-                            // TXSはフラグ更新しない
-                            state  = cpu_state_t::FETCH;
-                            reg_pc = reg_pc + inst_len;
-                        }
-
-                        inst_t::INX: {
-                            $display("[EXECUTE] PC=%04h OPCODE=INX", reg_pc);
-                            let result  : logic<8> = reg_x + 1;
-                            reg_x    = result;
-                            reg_p[1] = (result == 0);
-                            reg_p[7] = result[7];
-                            state    = cpu_state_t::FETCH;
-                            reg_pc   = reg_pc + inst_len;
-                        }
-
-                        inst_t::DEY: {
-                            $display("[EXECUTE] PC=%04h OPCODE=DEY", reg_pc);
-                            let result  : logic<8> = reg_y - 1;
-                            reg_y    = result;
-                            reg_p[1] = (result == 0);
-                            reg_p[7] = result[7];
-                            state    = cpu_state_t::FETCH;
-                            reg_pc   = reg_pc + inst_len;
-                        }
-
                         // Z=0なら分岐する
                         inst_t::BNE: {
                             $display("[EXECUTE] PC=%04h OPCODE=BNE", reg_pc);
