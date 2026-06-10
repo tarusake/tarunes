@@ -24,6 +24,7 @@ module cpu (
         INVALID,
         SEI,
         CLD,
+        CLC,
         TXS,
         INX,
         DEX,
@@ -61,9 +62,10 @@ module cpu (
         mode     : addr_mode_t    ,
         len      : logic      <16>,
     }
-    const DECODE_TABLE: decode_entry_t [24] = '{
+    const DECODE_TABLE: decode_entry_t [25] = '{
         decode_entry_t'{opcode: 8'h78, inst_kind: inst_t::SEI, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'hD8, inst_kind: inst_t::CLD, mode: addr_mode_t::IMPLIED, len: 1,},
+        decode_entry_t'{opcode: 8'h18, inst_kind: inst_t::CLC, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h9A, inst_kind: inst_t::TXS, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'hE8, inst_kind: inst_t::INX, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'hCA, inst_kind: inst_t::DEX, mode: addr_mode_t::IMPLIED, len: 1,},
@@ -225,6 +227,13 @@ module cpu (
                                     inst_t::CLD: {
                                         $display("[DECODE] PC=%04h OPCODE=CLD", reg_pc);
                                         reg_p[3] = 1'b0;
+                                        state    = cpu_state_t::FETCH;
+                                        reg_pc   = reg_pc + decode_entry.len;
+                                    }
+
+                                    inst_t::CLC: {
+                                        $display("[DECODE] PC=%04h OPCODE=CLC", reg_pc);
+                                        reg_p[0] = 1'b0;
                                         state    = cpu_state_t::FETCH;
                                         reg_pc   = reg_pc + decode_entry.len;
                                     }
