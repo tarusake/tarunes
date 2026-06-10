@@ -35,6 +35,7 @@ module cpu (
         STA,
         STX,
         STY,
+        BIT,
         BNE,
         BEQ,
         BPL,
@@ -60,7 +61,7 @@ module cpu (
         mode     : addr_mode_t    ,
         len      : logic      <16>,
     }
-    const DECODE_TABLE: decode_entry_t [22] = '{
+    const DECODE_TABLE: decode_entry_t [24] = '{
         decode_entry_t'{opcode: 8'h78, inst_kind: inst_t::SEI, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'hD8, inst_kind: inst_t::CLD, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h9A, inst_kind: inst_t::TXS, mode: addr_mode_t::IMPLIED, len: 1,},
@@ -73,6 +74,8 @@ module cpu (
         decode_entry_t'{opcode: 8'hA2, inst_kind: inst_t::LDX, mode: addr_mode_t::IMM, len: 2,},
         decode_entry_t'{opcode: 8'hA0, inst_kind: inst_t::LDY, mode: addr_mode_t::IMM, len: 2,},
         decode_entry_t'{opcode: 8'hE0, inst_kind: inst_t::CPX, mode: addr_mode_t::IMM, len: 2,},
+        decode_entry_t'{opcode: 8'h24, inst_kind: inst_t::BIT, mode: addr_mode_t::ZP, len: 2,},
+        decode_entry_t'{opcode: 8'h2C, inst_kind: inst_t::BIT, mode: addr_mode_t::ABS, len: 3,},
         decode_entry_t'{opcode: 8'h85, inst_kind: inst_t::STA, mode: addr_mode_t::ZP, len: 2,},
         decode_entry_t'{opcode: 8'h8D, inst_kind: inst_t::STA, mode: addr_mode_t::ABS, len: 3,},
         decode_entry_t'{opcode: 8'h8E, inst_kind: inst_t::STX, mode: addr_mode_t::ABS, len: 3,},
@@ -282,7 +285,13 @@ module cpu (
                                 mem_ready   = 1;
                                 if (mem_ready) {
                                     mem_ready = 0;
-                                    state     = cpu_state_t::EXEC;
+                                    // STA_ZPはoperandをそのまま書き込み先にできるが、
+                                    // BIT_ZPはoperandが指すメモリ値を読む必要がある。
+                                    if (decode_entry.inst_kind == inst_t::BIT) {
+                                        state = cpu_state_t::OP2;
+                                    } else {
+                                        state = cpu_state_t::EXEC;
+                                    }
                                 }
                             }
 
@@ -309,7 +318,7 @@ module cpu (
                             mem_ready   = 1;
                             if (mem_ready) {
                                 mem_ready = 0;
-                                if (decoded_inst == inst_t::LDA) {
+                                if (decoded_inst == inst_t::LDA || decoded_inst == inst_t::BIT) {
                                     state = cpu_state_t::OP2;
                                 } else {
                                     state = cpu_state_t::EXEC;
@@ -333,6 +342,15 @@ module cpu (
 
                 cpu_state_t::OP2: {
                     case (addr_mode) {
+                        addr_mode_t::ZP: {
+                            // BIT_ZP用: $00xxを読ませ、次のEXECで返ってきた値からflagsを更新する。
+                            cpubus.addr = {8'h00, cpubus.rdata};
+                            mem_ready   = 1;
+                            if (mem_ready) {
+                                mem_ready = 0;
+                                state     = cpu_state_t::EXEC;
+                            }
+                        }
                         addr_mode_t::ABS: {
                             cpubus.addr = {cpubus.rdata, op1};
                             mem_ready   = 1;
@@ -438,6 +456,15 @@ module cpu (
                             reg_p[0] = (reg_x >= cpubus.rdata);
                             reg_p[1] = (result == 0);
                             reg_p[7] = result[7];
+                            reg_pc   = reg_pc + inst_len;
+                            state    = cpu_state_t::FETCH;
+                        }
+                        inst_t::BIT: {
+                            $display("[EXECUTE] PC=%04h OPCODE=BIT", reg_pc);
+                            let result  : logic<8> = reg_a & cpubus.rdata;
+                            reg_p[1] = (result == 0);
+                            reg_p[6] = cpubus.rdata[6];
+                            reg_p[7] = cpubus.rdata[7];
                             reg_pc   = reg_pc + inst_len;
                             state    = cpu_state_t::FETCH;
                         }
