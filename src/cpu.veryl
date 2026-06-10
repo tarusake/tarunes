@@ -29,6 +29,7 @@ module cpu (
         LDA,
         LDX,
         LDY,
+        CPX,
         STA,
         STX,
         BNE,
@@ -52,7 +53,7 @@ module cpu (
         mode     : addr_mode_t    ,
         len      : logic      <16>,
     }
-    const DECODE_TABLE: decode_entry_t [16] = '{
+    const DECODE_TABLE: decode_entry_t [17] = '{
         decode_entry_t'{opcode: 8'h78, inst_kind: inst_t::SEI, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'hD8, inst_kind: inst_t::CLD, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h9A, inst_kind: inst_t::TXS, mode: addr_mode_t::IMPLIED, len: 1,},
@@ -64,6 +65,7 @@ module cpu (
         decode_entry_t'{opcode: 8'hBD, inst_kind: inst_t::LDA, mode: addr_mode_t::ABSX, len: 3,},
         decode_entry_t'{opcode: 8'hA2, inst_kind: inst_t::LDX, mode: addr_mode_t::IMM, len: 2,},
         decode_entry_t'{opcode: 8'hA0, inst_kind: inst_t::LDY, mode: addr_mode_t::IMM, len: 2,},
+        decode_entry_t'{opcode: 8'hE0, inst_kind: inst_t::CPX, mode: addr_mode_t::IMM, len: 2,},
         decode_entry_t'{opcode: 8'h8D, inst_kind: inst_t::STA, mode: addr_mode_t::ABS, len: 3,},
         decode_entry_t'{opcode: 8'h8E, inst_kind: inst_t::STX, mode: addr_mode_t::ABS, len: 3,},
         decode_entry_t'{opcode: 8'hD0, inst_kind: inst_t::BNE, mode: addr_mode_t::REL, len: 2,},
@@ -376,6 +378,15 @@ module cpu (
                             reg_y    = cpubus.rdata;
                             reg_p[1] = (cpubus.rdata == 0);
                             reg_p[7] = cpubus.rdata[7];
+                            reg_pc   = reg_pc + inst_len;
+                            state    = cpu_state_t::FETCH;
+                        }
+                        inst_t::CPX: {
+                            $display("[EXECUTE] PC=%04h CPX_IMM", reg_pc);
+                            let result  : logic<8> = reg_x - cpubus.rdata;
+                            reg_p[0] = (reg_x >= cpubus.rdata);
+                            reg_p[1] = (result == 0);
+                            reg_p[7] = result[7];
                             reg_pc   = reg_pc + inst_len;
                             state    = cpu_state_t::FETCH;
                         }
