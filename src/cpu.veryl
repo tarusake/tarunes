@@ -38,6 +38,7 @@ module cpu (
         INX,
         INY,
         INC,
+        LSR,
         DEX,
         DEY,
         LDA,
@@ -82,7 +83,7 @@ module cpu (
         mode     : addr_mode_t    ,
         len      : logic      <16>,
     }
-    const DECODE_TABLE: decode_entry_t [60] = '{
+    const DECODE_TABLE: decode_entry_t [65] = '{
         decode_entry_t'{opcode: 8'h00, inst_kind: inst_t::BRK, mode: addr_mode_t::IMPLIED, len: 2,},
         decode_entry_t'{opcode: 8'h40, inst_kind: inst_t::RTI, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h48, inst_kind: inst_t::PHA, mode: addr_mode_t::IMPLIED, len: 1,},
@@ -99,6 +100,11 @@ module cpu (
         decode_entry_t'{opcode: 8'hF6, inst_kind: inst_t::INC, mode: addr_mode_t::ZPX, len: 2,},
         decode_entry_t'{opcode: 8'hEE, inst_kind: inst_t::INC, mode: addr_mode_t::ABS, len: 3,},
         decode_entry_t'{opcode: 8'hFE, inst_kind: inst_t::INC, mode: addr_mode_t::ABSX, len: 3,},
+        decode_entry_t'{opcode: 8'h4A, inst_kind: inst_t::LSR, mode: addr_mode_t::IMPLIED, len: 1,},
+        decode_entry_t'{opcode: 8'h46, inst_kind: inst_t::LSR, mode: addr_mode_t::ZP, len: 2,},
+        decode_entry_t'{opcode: 8'h56, inst_kind: inst_t::LSR, mode: addr_mode_t::ZPX, len: 2,},
+        decode_entry_t'{opcode: 8'h4E, inst_kind: inst_t::LSR, mode: addr_mode_t::ABS, len: 3,},
+        decode_entry_t'{opcode: 8'h5E, inst_kind: inst_t::LSR, mode: addr_mode_t::ABSX, len: 3,},
         decode_entry_t'{opcode: 8'hCA, inst_kind: inst_t::DEX, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h88, inst_kind: inst_t::DEY, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'hA9, inst_kind: inst_t::LDA, mode: addr_mode_t::IMM, len: 2,},
@@ -423,6 +429,17 @@ module cpu (
                                         reg_pc   = reg_pc + decode_entry.len;
                                     }
 
+                                    inst_t::LSR: {
+                                        $display("[DECODE] PC=%04h OPCODE=LSR_A", reg_pc);
+                                        let result  : logic<8> = reg_a >> 1;
+                                        reg_p[0] = reg_a[0];
+                                        reg_p[1] = (result == 0);
+                                        reg_p[7] = 1'b0;
+                                        reg_a    = result;
+                                        state    = cpu_state_t::FETCH;
+                                        reg_pc   = reg_pc + decode_entry.len;
+                                    }
+
                                     inst_t::INX: {
                                         $display("[DECODE] PC=%04h OPCODE=INX", reg_pc);
                                         let result  : logic<8> = reg_x + 1;
@@ -492,6 +509,7 @@ module cpu (
                                             != addr_mode_t::IMM)
                                         || (decode_entry.inst_kind == inst_t::CMP && decode_entry.mode
                                             != addr_mode_t::IMM) || decode_entry.inst_kind == inst_t::INC
+                                        || decode_entry.inst_kind == inst_t::LSR
                                         || (decode_entry.inst_kind == inst_t::AND && decode_entry.mode
                                             != addr_mode_t::IMM)) {
                                         state = cpu_state_t::OP2;
@@ -525,7 +543,8 @@ module cpu (
                             if (mem_ready) {
                                 mem_ready = 0;
                                 if (decoded_inst == inst_t::LDA || decoded_inst == inst_t::BIT || decoded_inst
-                                    == inst_t::CMP || decoded_inst == inst_t::INC || decoded_inst == inst_t::AND) {
+                                    == inst_t::CMP || decoded_inst == inst_t::INC || decoded_inst == inst_t::LSR
+                                    || decoded_inst == inst_t::AND) {
                                     state = cpu_state_t::OP2;
                                 } else {
                                     state = cpu_state_t::EXEC;
@@ -806,6 +825,17 @@ module cpu (
                             op2          = result;
                             reg_p[1]     = (result == 0);
                             reg_p[7]     = result[7];
+                            state        = cpu_state_t::RMW_WRITE;
+                        }
+                        inst_t::LSR: {
+                            $display    ("[EXECUTE] PC=%04h OPCODE=LSR", reg_pc);
+                            let result      : logic<8> = cpubus.rdata >> 1;
+                            cpubus.wdata = cpubus.rdata;
+                            cpubus.wen   = 1'b1;
+                            op2          = result;
+                            reg_p[0]     = cpubus.rdata[0];
+                            reg_p[1]     = (result == 0);
+                            reg_p[7]     = 1'b0;
                             state        = cpu_state_t::RMW_WRITE;
                         }
                         inst_t::AND: {
