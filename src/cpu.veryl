@@ -27,6 +27,7 @@ module cpu (
         INVALID,
         BRK,
         RTI,
+        PHA,
         PLP,
         SEI,
         SEC,
@@ -80,9 +81,10 @@ module cpu (
         mode     : addr_mode_t    ,
         len      : logic      <16>,
     }
-    const DECODE_TABLE: decode_entry_t [58] = '{
+    const DECODE_TABLE: decode_entry_t [59] = '{
         decode_entry_t'{opcode: 8'h00, inst_kind: inst_t::BRK, mode: addr_mode_t::IMPLIED, len: 2,},
         decode_entry_t'{opcode: 8'h40, inst_kind: inst_t::RTI, mode: addr_mode_t::IMPLIED, len: 1,},
+        decode_entry_t'{opcode: 8'h48, inst_kind: inst_t::PHA, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h28, inst_kind: inst_t::PLP, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h78, inst_kind: inst_t::SEI, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h38, inst_kind: inst_t::SEC, mode: addr_mode_t::IMPLIED, len: 1,},
@@ -360,6 +362,16 @@ module cpu (
                                             mem_ready = 0;
                                             state     = cpu_state_t::RTI_PULL_P;
                                         }
+                                    }
+
+                                    inst_t::PHA: {
+                                        $display    ("[DECODE] PC=%04h OPCODE=PHA", reg_pc);
+                                        cpubus.addr  = {8'h01, reg_sp};
+                                        cpubus.wdata = reg_a;
+                                        cpubus.wen   = 1'b1;
+                                        reg_sp       = reg_sp - 1;
+                                        reg_pc       = reg_pc + decode_entry.len;
+                                        state        = cpu_state_t::FETCH;
                                     }
 
                                     // IRQフラグ無効
