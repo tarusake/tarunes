@@ -64,7 +64,7 @@ module ppu (
                             ppu_addr_cpu = reg_v[13:0];
                             ppubus.wdata = cpubus.wdata;
                         }
-                        reg_v = reg_v + 1;
+                        reg_v = reg_v + (if reg_ctrl[2] ? 32 : 1);
                     }
                 }
             }
