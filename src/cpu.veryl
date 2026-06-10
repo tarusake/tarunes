@@ -51,6 +51,7 @@ module cpu (
         CPX,
         CMP,
         AND,
+        EOR,
         STA,
         STX,
         STY,
@@ -87,7 +88,7 @@ module cpu (
         mode     : addr_mode_t    ,
         len      : logic      <16>,
     }
-    const DECODE_TABLE: decode_entry_t [73] = '{
+    const DECODE_TABLE: decode_entry_t [81] = '{
         decode_entry_t'{opcode: 8'h00, inst_kind: inst_t::BRK, mode: addr_mode_t::IMPLIED, len: 2,},
         decode_entry_t'{opcode: 8'h40, inst_kind: inst_t::RTI, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h48, inst_kind: inst_t::PHA, mode: addr_mode_t::IMPLIED, len: 1,},
@@ -144,6 +145,14 @@ module cpu (
         decode_entry_t'{opcode: 8'h2D, inst_kind: inst_t::AND, mode: addr_mode_t::ABS, len: 3,},
         decode_entry_t'{opcode: 8'h3D, inst_kind: inst_t::AND, mode: addr_mode_t::ABSX, len: 3,},
         decode_entry_t'{opcode: 8'h39, inst_kind: inst_t::AND, mode: addr_mode_t::ABSY, len: 3,},
+        decode_entry_t'{opcode: 8'h49, inst_kind: inst_t::EOR, mode: addr_mode_t::IMM, len: 2,},
+        decode_entry_t'{opcode: 8'h45, inst_kind: inst_t::EOR, mode: addr_mode_t::ZP, len: 2,},
+        decode_entry_t'{opcode: 8'h55, inst_kind: inst_t::EOR, mode: addr_mode_t::ZPX, len: 2,},
+        decode_entry_t'{opcode: 8'h4D, inst_kind: inst_t::EOR, mode: addr_mode_t::ABS, len: 3,},
+        decode_entry_t'{opcode: 8'h5D, inst_kind: inst_t::EOR, mode: addr_mode_t::ABSX, len: 3,},
+        decode_entry_t'{opcode: 8'h59, inst_kind: inst_t::EOR, mode: addr_mode_t::ABSY, len: 3,},
+        decode_entry_t'{opcode: 8'h41, inst_kind: inst_t::EOR, mode: addr_mode_t::INDX, len: 2,},
+        decode_entry_t'{opcode: 8'h51, inst_kind: inst_t::EOR, mode: addr_mode_t::INDY, len: 2,},
         decode_entry_t'{opcode: 8'h24, inst_kind: inst_t::BIT, mode: addr_mode_t::ZP, len: 2,},
         decode_entry_t'{opcode: 8'h2C, inst_kind: inst_t::BIT, mode: addr_mode_t::ABS, len: 3,},
         decode_entry_t'{opcode: 8'h85, inst_kind: inst_t::STA, mode: addr_mode_t::ZP, len: 2,},
@@ -562,6 +571,8 @@ module cpu (
                                         || decode_entry.inst_kind == inst_t::LSR || decode_entry.inst_kind
                                         == inst_t::ROL
                                         || (decode_entry.inst_kind == inst_t::AND && decode_entry.mode
+                                            != addr_mode_t::IMM)
+                                        || (decode_entry.inst_kind == inst_t::EOR && decode_entry.mode
                                             != addr_mode_t::IMM)) {
                                         state = cpu_state_t::OP2;
                                     } else {
@@ -595,7 +606,8 @@ module cpu (
                                 mem_ready = 0;
                                 if (decoded_inst == inst_t::LDA || decoded_inst == inst_t::BIT || decoded_inst
                                     == inst_t::CMP || decoded_inst == inst_t::INC || decoded_inst == inst_t::LSR
-                                    || decoded_inst == inst_t::ROL || decoded_inst == inst_t::AND) {
+                                    || decoded_inst == inst_t::ROL || decoded_inst == inst_t::AND || decoded_inst
+                                    == inst_t::EOR) {
                                     state = cpu_state_t::OP2;
                                 } else {
                                     state = cpu_state_t::EXEC;
@@ -903,6 +915,15 @@ module cpu (
                         inst_t::AND: {
                             $display("[EXECUTE] PC=%04h OPCODE=AND", reg_pc);
                             let result  : logic<8> = reg_a & cpubus.rdata;
+                            reg_a    = result;
+                            reg_p[1] = (result == 0);
+                            reg_p[7] = result[7];
+                            reg_pc   = reg_pc + inst_len;
+                            state    = cpu_state_t::FETCH;
+                        }
+                        inst_t::EOR: {
+                            $display("[EXECUTE] PC=%04h OPCODE=EOR", reg_pc);
+                            let result  : logic<8> = reg_a ^ cpubus.rdata;
                             reg_a    = result;
                             reg_p[1] = (result == 0);
                             reg_p[7] = result[7];
