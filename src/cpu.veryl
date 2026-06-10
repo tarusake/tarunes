@@ -28,6 +28,7 @@ module cpu (
         BRK,
         RTI,
         PHA,
+        PLA,
         PLP,
         SEI,
         SEC,
@@ -89,10 +90,11 @@ module cpu (
         mode     : addr_mode_t    ,
         len      : logic      <16>,
     }
-    const DECODE_TABLE: decode_entry_t [83] = '{
+    const DECODE_TABLE: decode_entry_t [84] = '{
         decode_entry_t'{opcode: 8'h00, inst_kind: inst_t::BRK, mode: addr_mode_t::IMPLIED, len: 2,},
         decode_entry_t'{opcode: 8'h40, inst_kind: inst_t::RTI, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h48, inst_kind: inst_t::PHA, mode: addr_mode_t::IMPLIED, len: 1,},
+        decode_entry_t'{opcode: 8'h68, inst_kind: inst_t::PLA, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h28, inst_kind: inst_t::PLP, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h78, inst_kind: inst_t::SEI, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h38, inst_kind: inst_t::SEC, mode: addr_mode_t::IMPLIED, len: 1,},
@@ -376,6 +378,17 @@ module cpu (
 
                                     inst_t::PLP: {
                                         $display   ("[DECODE] PC=%04h OPCODE=PLP", reg_pc);
+                                        cpubus.addr = {8'h01, reg_sp + 8'd1};
+                                        cpubus.wen  = 1'b0;
+                                        mem_ready   = 1'b1;
+                                        if (mem_ready) {
+                                            mem_ready = 0;
+                                            state     = cpu_state_t::EXEC;
+                                        }
+                                    }
+
+                                    inst_t::PLA: {
+                                        $display   ("[DECODE] PC=%04h OPCODE=PLA", reg_pc);
                                         cpubus.addr = {8'h01, reg_sp + 8'd1};
                                         cpubus.wen  = 1'b0;
                                         mem_ready   = 1'b1;
@@ -836,6 +849,16 @@ module cpu (
                         inst_t::PLP: {
                             $display("[EXECUTE] PC=%04h OPCODE=PLP", reg_pc);
                             reg_p    = cpubus.rdata | 8'h20;
+                            reg_sp   = reg_sp + 1;
+                            reg_pc   = reg_pc + inst_len;
+                            state    = cpu_state_t::FETCH;
+                        }
+
+                        inst_t::PLA: {
+                            $display("[EXECUTE] PC=%04h OPCODE=PLA", reg_pc);
+                            reg_a    = cpubus.rdata;
+                            reg_p[1] = (cpubus.rdata == 0);
+                            reg_p[7] = cpubus.rdata[7];
                             reg_sp   = reg_sp + 1;
                             reg_pc   = reg_pc + inst_len;
                             state    = cpu_state_t::FETCH;
