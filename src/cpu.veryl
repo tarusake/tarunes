@@ -39,6 +39,7 @@ module cpu (
         BPL,
         JMP,
         JSR,
+        RTS,
     }
     var decoded_inst: inst_t;
 
@@ -58,7 +59,7 @@ module cpu (
         mode     : addr_mode_t    ,
         len      : logic      <16>,
     }
-    const DECODE_TABLE: decode_entry_t [20] = '{
+    const DECODE_TABLE: decode_entry_t [21] = '{
         decode_entry_t'{opcode: 8'h78, inst_kind: inst_t::SEI, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'hD8, inst_kind: inst_t::CLD, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h9A, inst_kind: inst_t::TXS, mode: addr_mode_t::IMPLIED, len: 1,},
@@ -79,6 +80,7 @@ module cpu (
         decode_entry_t'{opcode: 8'h10, inst_kind: inst_t::BPL, mode: addr_mode_t::REL, len: 2,},
         decode_entry_t'{opcode: 8'h4C, inst_kind: inst_t::JMP, mode: addr_mode_t::ABS, len: 3,},
         decode_entry_t'{opcode: 8'h20, inst_kind: inst_t::JSR, mode: addr_mode_t::ABS, len: 3,},
+        decode_entry_t'{opcode: 8'h60, inst_kind: inst_t::RTS, mode: addr_mode_t::IMPLIED, len: 1,},
     };
 
     enum cpu_state_t {
@@ -92,6 +94,8 @@ module cpu (
         OP2,
         EXEC,
         JSR_PUSH_LO,
+        RTS_PULL_LO,
+        RTS_PULL_HI,
     }
     var state: cpu_state_t;
 
@@ -109,6 +113,8 @@ module cpu (
             cpu_state_t::OP2        : return "OP2";
             cpu_state_t::EXEC       : return "EXEC";
             cpu_state_t::JSR_PUSH_LO: return "JSR_LO";
+            cpu_state_t::RTS_PULL_LO: return "RTS_LO";
+            cpu_state_t::RTS_PULL_HI: return "RTS_HI";
             default                 : return "UNKNOWN";
         }
     }
@@ -254,6 +260,14 @@ module cpu (
                                         reg_p[7] = result[7];
                                         state    = cpu_state_t::FETCH;
                                         reg_pc   = reg_pc + decode_entry.len;
+                                    }
+
+                                    inst_t::RTS: {
+                                        $display   ("[DECODE] PC=%04h OPCODE=RTS", reg_pc);
+                                        cpubus.addr = {8'h01, reg_sp + 8'd1};
+                                        cpubus.wen  = 1'b0;
+                                        mem_ready   = 1'b1;
+                                        state       = cpu_state_t::RTS_PULL_LO;
                                     }
 
                                     default: {
@@ -454,6 +468,22 @@ module cpu (
                     reg_sp       = reg_sp - 1;
                     reg_pc       = {op2, op1};
                     state        = cpu_state_t::FETCH;
+                }
+                cpu_state_t::RTS_PULL_LO: {
+                    if (mem_ready) {
+                        op1         = cpubus.rdata;
+                        cpubus.addr = {8'h01, reg_sp + 8'd2};
+                        reg_sp      = reg_sp + 1;
+                        state       = cpu_state_t::RTS_PULL_HI;
+                    }
+                }
+                cpu_state_t::RTS_PULL_HI: {
+                    if (mem_ready) {
+                        mem_ready = 1'b0;
+                        reg_sp    = reg_sp + 1;
+                        reg_pc    = {cpubus.rdata, op1} + 16'd1;
+                        state     = cpu_state_t::FETCH;
+                    }
                 }
                 default: {
                     state = cpu_state_t::RESET0;
