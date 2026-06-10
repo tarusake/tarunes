@@ -24,6 +24,7 @@ module cpu (
         CLD,
         TXS,
         INX,
+        DEX,
         DEY,
         LDA,
         LDX,
@@ -51,11 +52,12 @@ module cpu (
         mode     : addr_mode_t    ,
         len      : logic      <16>,
     }
-    const DECODE_TABLE: decode_entry_t [15] = '{
+    const DECODE_TABLE: decode_entry_t [16] = '{
         decode_entry_t'{opcode: 8'h78, inst_kind: inst_t::SEI, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'hD8, inst_kind: inst_t::CLD, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h9A, inst_kind: inst_t::TXS, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'hE8, inst_kind: inst_t::INX, mode: addr_mode_t::IMPLIED, len: 1,},
+        decode_entry_t'{opcode: 8'hCA, inst_kind: inst_t::DEX, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h88, inst_kind: inst_t::DEY, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'hA9, inst_kind: inst_t::LDA, mode: addr_mode_t::IMM, len: 2,},
         decode_entry_t'{opcode: 8'hAD, inst_kind: inst_t::LDA, mode: addr_mode_t::ABS, len: 3,},
@@ -213,6 +215,16 @@ module cpu (
                                     inst_t::INX: {
                                         $display("[DECODE] PC=%04h OPCODE=INX", reg_pc);
                                         let result  : logic<8> = reg_x + 1;
+                                        reg_x    = result;
+                                        reg_p[1] = (result == 0);
+                                        reg_p[7] = result[7];
+                                        state    = cpu_state_t::FETCH;
+                                        reg_pc   = reg_pc + decode_entry.len;
+                                    }
+
+                                    inst_t::DEX: {
+                                        $display("[DECODE] PC=%04h OPCODE=DEX", reg_pc);
+                                        let result  : logic<8> = reg_x - 1;
                                         reg_x    = result;
                                         reg_p[1] = (result == 0);
                                         reg_p[7] = result[7];
