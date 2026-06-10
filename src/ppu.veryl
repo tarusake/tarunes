@@ -8,13 +8,15 @@ module ppu (
     pixel_r : output  logic                  <8>,
     pixel_g : output  logic                  <8>,
     pixel_b : output  logic                  <8>,
+    nmi     : output  logic                     ,
 ) {
     var pixel_index  : logic<6> ;
     var palette_color: logic<24>;
 
     // VRAM Address Latch
-    var reg_w: logic    ;
-    var reg_v: logic<16>;
+    var reg_ctrl: logic<8> ;
+    var reg_w   : logic    ;
+    var reg_v   : logic<16>;
 
     var palette_ram: logic<8> [32];
 
@@ -29,6 +31,7 @@ module ppu (
             ppu_addr_cpu = 0;
             ppubus.wen   = 0;
             ppubus.wdata = 0;
+            reg_ctrl     = 0;
             reg_w        = 0;
             reg_v        = 0;
             palette_ram  = '{default: 0};
@@ -38,6 +41,9 @@ module ppu (
 
             if (cpubus.wen) {
                 case (cpubus.addr) {
+                    0: {
+                        reg_ctrl = cpubus.wdata;
+                    }
 
                     6: {
                         reg_w = ~reg_w;
@@ -84,7 +90,13 @@ module ppu (
         if_reset {
             cycle    = 0;
             scanline = 0;
+            nmi      = 0;
         } else {
+            nmi = 0;
+            if (scanline == 241 && cycle == 0 && reg_ctrl[7]) {
+                nmi = 1;
+            }
+
             if (cycle == 340) {
                 cycle = 0;
                 if (scanline == 261) {

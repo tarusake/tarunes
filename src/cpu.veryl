@@ -1,6 +1,7 @@
 module cpu (
     clk   : input   clock                  ,
     rst   : input   reset                  ,
+    nmi   : input   logic                  ,
     cpubus: modport bus_if::<8, 16>::master,
 ) {
     // CPU Registers
@@ -19,10 +20,13 @@ module cpu (
     var op2        : logic<8> ;
     var return_addr: logic<16>;
     var inst_len   : logic<16>;
+    var nmi_d      : logic    ;
+    var nmi_pending: logic    ;
 
     enum inst_t {
         INVALID,
         BRK,
+        RTI,
         PLP,
         SEI,
         SEC,
@@ -76,8 +80,9 @@ module cpu (
         mode     : addr_mode_t    ,
         len      : logic      <16>,
     }
-    const DECODE_TABLE: decode_entry_t [57] = '{
+    const DECODE_TABLE: decode_entry_t [58] = '{
         decode_entry_t'{opcode: 8'h00, inst_kind: inst_t::BRK, mode: addr_mode_t::IMPLIED, len: 2,},
+        decode_entry_t'{opcode: 8'h40, inst_kind: inst_t::RTI, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h28, inst_kind: inst_t::PLP, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h78, inst_kind: inst_t::SEI, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h38, inst_kind: inst_t::SEC, mode: addr_mode_t::IMPLIED, len: 1,},
@@ -152,8 +157,22 @@ module cpu (
         BRK_PUSH_LO,
         BRK_PUSH_P,
         BRK_VECTOR_LO,
+        BRK_VECTOR_LO_WAIT,
         BRK_VECTOR_HI,
+        BRK_VECTOR_HI_WAIT,
+        BRK_VECTOR_HI_READ,
+        NMI_PUSH_LO,
+        NMI_PUSH_P,
+        NMI_VECTOR_LO,
+        NMI_VECTOR_LO_WAIT,
+        NMI_VECTOR_HI,
+        NMI_VECTOR_HI_WAIT,
+        NMI_VECTOR_HI_READ,
         JSR_PUSH_LO,
+        RTI_PULL_P,
+        RTI_WAIT_LO,
+        RTI_PULL_LO,
+        RTI_PULL_HI,
         RTS_PULL_LO,
         RTS_WAIT_HI,
         RTS_PULL_HI,
@@ -164,27 +183,41 @@ module cpu (
         debug_state: input cpu_state_t,
     ) -> logic<64> {
         case (debug_state) {
-            cpu_state_t::RESET0       : return "RESET0";
-            cpu_state_t::RESET1       : return "RESET1";
-            cpu_state_t::RESET2       : return "RESET2";
-            cpu_state_t::RESET3       : return "RESET3";
-            cpu_state_t::FETCH        : return "FETCH";
-            cpu_state_t::DECODE       : return "DECODE";
-            cpu_state_t::OP1          : return "OP1";
-            cpu_state_t::OP2          : return "OP2";
-            cpu_state_t::OP3          : return "OP3";
-            cpu_state_t::OP4          : return "OP4";
-            cpu_state_t::EXEC         : return "EXEC";
-            cpu_state_t::RMW_WRITE    : return "RMW_WR";
-            cpu_state_t::BRK_PUSH_LO  : return "BRK_LO";
-            cpu_state_t::BRK_PUSH_P   : return "BRK_P";
-            cpu_state_t::BRK_VECTOR_LO: return "BRK_VL";
-            cpu_state_t::BRK_VECTOR_HI: return "BRK_VH";
-            cpu_state_t::JSR_PUSH_LO  : return "JSR_LO";
-            cpu_state_t::RTS_PULL_LO  : return "RTS_LO";
-            cpu_state_t::RTS_WAIT_HI  : return "RTS_WAIT";
-            cpu_state_t::RTS_PULL_HI  : return "RTS_HI";
-            default                   : return "UNKNOWN";
+            cpu_state_t::RESET0            : return "RESET0";
+            cpu_state_t::RESET1            : return "RESET1";
+            cpu_state_t::RESET2            : return "RESET2";
+            cpu_state_t::RESET3            : return "RESET3";
+            cpu_state_t::FETCH             : return "FETCH";
+            cpu_state_t::DECODE            : return "DECODE";
+            cpu_state_t::OP1               : return "OP1";
+            cpu_state_t::OP2               : return "OP2";
+            cpu_state_t::OP3               : return "OP3";
+            cpu_state_t::OP4               : return "OP4";
+            cpu_state_t::EXEC              : return "EXEC";
+            cpu_state_t::RMW_WRITE         : return "RMW_WR";
+            cpu_state_t::BRK_PUSH_LO       : return "BRK_LO";
+            cpu_state_t::BRK_PUSH_P        : return "BRK_P";
+            cpu_state_t::BRK_VECTOR_LO     : return "BRK_VL";
+            cpu_state_t::BRK_VECTOR_LO_WAIT: return "BRK_WL";
+            cpu_state_t::BRK_VECTOR_HI     : return "BRK_VH";
+            cpu_state_t::BRK_VECTOR_HI_WAIT: return "BRK_WH";
+            cpu_state_t::BRK_VECTOR_HI_READ: return "BRK_RH";
+            cpu_state_t::NMI_PUSH_LO       : return "NMI_LO";
+            cpu_state_t::NMI_PUSH_P        : return "NMI_P";
+            cpu_state_t::NMI_VECTOR_LO     : return "NMI_VL";
+            cpu_state_t::NMI_VECTOR_LO_WAIT: return "NMI_WL";
+            cpu_state_t::NMI_VECTOR_HI     : return "NMI_VH";
+            cpu_state_t::NMI_VECTOR_HI_WAIT: return "NMI_WH";
+            cpu_state_t::NMI_VECTOR_HI_READ: return "NMI_RH";
+            cpu_state_t::JSR_PUSH_LO       : return "JSR_LO";
+            cpu_state_t::RTI_PULL_P        : return "RTI_P";
+            cpu_state_t::RTI_WAIT_LO       : return "RTI_WAIT";
+            cpu_state_t::RTI_PULL_LO       : return "RTI_LO";
+            cpu_state_t::RTI_PULL_HI       : return "RTI_HI";
+            cpu_state_t::RTS_PULL_LO       : return "RTS_LO";
+            cpu_state_t::RTS_WAIT_HI       : return "RTS_WAIT";
+            cpu_state_t::RTS_PULL_HI       : return "RTS_HI";
+            default                        : return "UNKNOWN";
         }
     }
 
@@ -229,9 +262,15 @@ module cpu (
             op2          = 0;
             return_addr  = 0;
             inst_len     = 0;
+            nmi_d        = 0;
+            nmi_pending  = 0;
             decoded_inst = inst_t::INVALID;
             addr_mode    = addr_mode_t::IMPLIED;
         } else {
+            // NMIは1clkパルスなので立ち上がりを検出して命令境界まで保持する
+            nmi_pending = nmi_pending || (nmi && !nmi_d);
+            nmi_d       = nmi;
+
             case state {
                 // 0xFFFCをセット
                 cpu_state_t::RESET0: {
@@ -256,13 +295,25 @@ module cpu (
                 }
                 // PCを読み込む、データが返ってきたらDECODEステートへ
                 cpu_state_t::FETCH: {
-                    cpubus.addr = reg_pc;
-                    cpubus.wen  = 0;
-                    mem_ready   = 1;
-                    // 1clk待つ
-                    if (mem_ready) {
-                        mem_ready = 0;
-                        state     = cpu_state_t::DECODE;
+                    if (nmi_pending) {
+                        $display    ("[INTERRUPT] PC=%04h NMI", reg_pc);
+                        nmi_pending  = 0;
+                        mem_ready    = 0;
+                        return_addr  = reg_pc;
+                        cpubus.addr  = {8'h01, reg_sp};
+                        cpubus.wdata = reg_pc[15:8];
+                        cpubus.wen   = 1'b1;
+                        reg_sp       = reg_sp - 1;
+                        state        = cpu_state_t::NMI_PUSH_LO;
+                    } else {
+                        cpubus.addr = reg_pc;
+                        cpubus.wen  = 0;
+                        mem_ready   = 1;
+                        // 1clk待つ
+                        if (mem_ready) {
+                            mem_ready = 0;
+                            state     = cpu_state_t::DECODE;
+                        }
                     }
                 }
                 cpu_state_t::DECODE: {
@@ -281,6 +332,7 @@ module cpu (
                                         $display       ("[DECODE] PC=%04h OPCODE=BRK", reg_pc);
                                         let brk_return_addr: logic<16> = reg_pc + decode_entry.len;
                                         return_addr     = brk_return_addr;
+                                        mem_ready       = 0;
                                         cpubus.addr     = {8'h01, reg_sp};
                                         cpubus.wdata    = brk_return_addr[15:8];
                                         cpubus.wen      = 1'b1;
@@ -299,8 +351,19 @@ module cpu (
                                         }
                                     }
 
+                                    inst_t::RTI: {
+                                        $display   ("[DECODE] PC=%04h OPCODE=RTI", reg_pc);
+                                        cpubus.addr = {8'h01, reg_sp + 8'd1};
+                                        cpubus.wen  = 1'b0;
+                                        mem_ready   = 1'b1;
+                                        if (mem_ready) {
+                                            mem_ready = 0;
+                                            state     = cpu_state_t::RTI_PULL_P;
+                                        }
+                                    }
+
                                     // IRQフラグ無効
-                                    // ただし割り込み未実装のため現時点では意味はない
+                                    // NMIはIフラグに関係なく受け付ける
                                     inst_t::SEI: {
                                         $display("[DECODE] PC=%04h OPCODE=SEI", reg_pc);
                                         reg_p[2] = 1'b1;
@@ -798,27 +861,72 @@ module cpu (
                     cpubus.wen   = 1'b1;
                     reg_sp       = reg_sp - 1;
                     reg_p[2]     = 1'b1;
+                    mem_ready    = 0;
                     state        = cpu_state_t::BRK_VECTOR_LO;
                 }
                 cpu_state_t::BRK_VECTOR_LO: {
                     cpubus.addr = 16'hFFFE;
                     cpubus.wen  = 1'b0;
-                    mem_ready   = 1'b1;
-                    if (mem_ready) {
-                        mem_ready = 1'b0;
-                        op1       = cpubus.rdata;
-                        state     = cpu_state_t::BRK_VECTOR_HI;
-                    }
+                    state       = cpu_state_t::BRK_VECTOR_LO_WAIT;
+                }
+                cpu_state_t::BRK_VECTOR_LO_WAIT: {
+                    cpubus.wen = 1'b0;
+                    state      = cpu_state_t::BRK_VECTOR_HI;
                 }
                 cpu_state_t::BRK_VECTOR_HI: {
+                    op1         = cpubus.rdata;
                     cpubus.addr = 16'hFFFF;
                     cpubus.wen  = 1'b0;
-                    mem_ready   = 1'b1;
-                    if (mem_ready) {
-                        mem_ready = 1'b0;
-                        reg_pc    = {cpubus.rdata, op1};
-                        state     = cpu_state_t::FETCH;
-                    }
+                    state       = cpu_state_t::BRK_VECTOR_HI_WAIT;
+                }
+                cpu_state_t::BRK_VECTOR_HI_WAIT: {
+                    cpubus.wen = 1'b0;
+                    state      = cpu_state_t::BRK_VECTOR_HI_READ;
+                }
+                cpu_state_t::BRK_VECTOR_HI_READ: {
+                    cpubus.wen = 1'b0;
+                    reg_pc     = {cpubus.rdata, op1};
+                    state      = cpu_state_t::FETCH;
+                }
+                cpu_state_t::NMI_PUSH_LO: {
+                    cpubus.addr  = {8'h01, reg_sp};
+                    cpubus.wdata = return_addr[7:0];
+                    cpubus.wen   = 1'b1;
+                    reg_sp       = reg_sp - 1;
+                    state        = cpu_state_t::NMI_PUSH_P;
+                }
+                cpu_state_t::NMI_PUSH_P: {
+                    cpubus.addr  = {8'h01, reg_sp};
+                    cpubus.wdata = reg_p & 8'hEF | 8'h20;
+                    cpubus.wen   = 1'b1;
+                    reg_sp       = reg_sp - 1;
+                    reg_p[2]     = 1'b1;
+                    mem_ready    = 0;
+                    state        = cpu_state_t::NMI_VECTOR_LO;
+                }
+                cpu_state_t::NMI_VECTOR_LO: {
+                    cpubus.addr = 16'hFFFA;
+                    cpubus.wen  = 1'b0;
+                    state       = cpu_state_t::NMI_VECTOR_LO_WAIT;
+                }
+                cpu_state_t::NMI_VECTOR_LO_WAIT: {
+                    cpubus.wen = 1'b0;
+                    state      = cpu_state_t::NMI_VECTOR_HI;
+                }
+                cpu_state_t::NMI_VECTOR_HI: {
+                    op1         = cpubus.rdata;
+                    cpubus.addr = 16'hFFFB;
+                    cpubus.wen  = 1'b0;
+                    state       = cpu_state_t::NMI_VECTOR_HI_WAIT;
+                }
+                cpu_state_t::NMI_VECTOR_HI_WAIT: {
+                    cpubus.wen = 1'b0;
+                    state      = cpu_state_t::NMI_VECTOR_HI_READ;
+                }
+                cpu_state_t::NMI_VECTOR_HI_READ: {
+                    cpubus.wen = 1'b0;
+                    reg_pc     = {cpubus.rdata, op1};
+                    state      = cpu_state_t::FETCH;
                 }
                 cpu_state_t::JSR_PUSH_LO: {
                     cpubus.addr  = {8'h01, reg_sp};
@@ -827,6 +935,29 @@ module cpu (
                     reg_sp       = reg_sp - 1;
                     reg_pc       = {op2, op1};
                     state        = cpu_state_t::FETCH;
+                }
+                cpu_state_t::RTI_PULL_P: {
+                    reg_p       = cpubus.rdata | 8'h20;
+                    cpubus.addr = {8'h01, reg_sp + 8'd2};
+                    cpubus.wen  = 1'b0;
+                    reg_sp      = reg_sp + 1;
+                    state       = cpu_state_t::RTI_WAIT_LO;
+                }
+                cpu_state_t::RTI_WAIT_LO: {
+                    cpubus.addr = {8'h01, reg_sp + 8'd2};
+                    cpubus.wen  = 1'b0;
+                    state       = cpu_state_t::RTI_PULL_LO;
+                }
+                cpu_state_t::RTI_PULL_LO: {
+                    op1        = cpubus.rdata;
+                    cpubus.wen = 1'b0;
+                    reg_sp     = reg_sp + 1;
+                    state      = cpu_state_t::RTI_PULL_HI;
+                }
+                cpu_state_t::RTI_PULL_HI: {
+                    reg_sp = reg_sp + 1;
+                    reg_pc = {cpubus.rdata, op1};
+                    state  = cpu_state_t::FETCH;
                 }
                 cpu_state_t::RTS_PULL_LO: {
                     op1         = cpubus.rdata;
