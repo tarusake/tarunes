@@ -155,6 +155,7 @@ module cpu (
         BRK_VECTOR_HI,
         JSR_PUSH_LO,
         RTS_PULL_LO,
+        RTS_WAIT_HI,
         RTS_PULL_HI,
     }
     var state: cpu_state_t;
@@ -181,6 +182,7 @@ module cpu (
             cpu_state_t::BRK_VECTOR_HI: return "BRK_VH";
             cpu_state_t::JSR_PUSH_LO  : return "JSR_LO";
             cpu_state_t::RTS_PULL_LO  : return "RTS_LO";
+            cpu_state_t::RTS_WAIT_HI  : return "RTS_WAIT";
             cpu_state_t::RTS_PULL_HI  : return "RTS_HI";
             default                   : return "UNKNOWN";
         }
@@ -831,6 +833,10 @@ module cpu (
                     cpubus.addr = {8'h01, reg_sp + 8'd2};
                     reg_sp      = reg_sp + 1;
                     mem_ready   = 1'b1;
+                    state       = cpu_state_t::RTS_WAIT_HI;
+                }
+                cpu_state_t::RTS_WAIT_HI: {
+                    mem_ready = 1'b1;
                     if (mem_ready) {
                         mem_ready = 1'b0;
                         state     = cpu_state_t::RTS_PULL_HI;
