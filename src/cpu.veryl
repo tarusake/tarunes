@@ -22,6 +22,7 @@ module cpu (
 
     enum inst_t {
         INVALID,
+        BRK,
         SEI,
         CLD,
         CLC,
@@ -62,7 +63,8 @@ module cpu (
         mode     : addr_mode_t    ,
         len      : logic      <16>,
     }
-    const DECODE_TABLE: decode_entry_t [25] = '{
+    const DECODE_TABLE: decode_entry_t [26] = '{
+        decode_entry_t'{opcode: 8'h00, inst_kind: inst_t::BRK, mode: addr_mode_t::IMPLIED, len: 2,},
         decode_entry_t'{opcode: 8'h78, inst_kind: inst_t::SEI, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'hD8, inst_kind: inst_t::CLD, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h18, inst_kind: inst_t::CLC, mode: addr_mode_t::IMPLIED, len: 1,},
@@ -100,6 +102,10 @@ module cpu (
         OP1,
         OP2,
         EXEC,
+        BRK_PUSH_LO,
+        BRK_PUSH_P,
+        BRK_VECTOR_LO,
+        BRK_VECTOR_HI,
         JSR_PUSH_LO,
         RTS_PULL_LO,
         RTS_PULL_HI,
@@ -110,19 +116,23 @@ module cpu (
         debug_state: input cpu_state_t,
     ) -> logic<64> {
         case (debug_state) {
-            cpu_state_t::RESET0     : return "RESET0";
-            cpu_state_t::RESET1     : return "RESET1";
-            cpu_state_t::RESET2     : return "RESET2";
-            cpu_state_t::RESET3     : return "RESET3";
-            cpu_state_t::FETCH      : return "FETCH";
-            cpu_state_t::DECODE     : return "DECODE";
-            cpu_state_t::OP1        : return "OP1";
-            cpu_state_t::OP2        : return "OP2";
-            cpu_state_t::EXEC       : return "EXEC";
-            cpu_state_t::JSR_PUSH_LO: return "JSR_LO";
-            cpu_state_t::RTS_PULL_LO: return "RTS_LO";
-            cpu_state_t::RTS_PULL_HI: return "RTS_HI";
-            default                 : return "UNKNOWN";
+            cpu_state_t::RESET0       : return "RESET0";
+            cpu_state_t::RESET1       : return "RESET1";
+            cpu_state_t::RESET2       : return "RESET2";
+            cpu_state_t::RESET3       : return "RESET3";
+            cpu_state_t::FETCH        : return "FETCH";
+            cpu_state_t::DECODE       : return "DECODE";
+            cpu_state_t::OP1          : return "OP1";
+            cpu_state_t::OP2          : return "OP2";
+            cpu_state_t::EXEC         : return "EXEC";
+            cpu_state_t::BRK_PUSH_LO  : return "BRK_LO";
+            cpu_state_t::BRK_PUSH_P   : return "BRK_P";
+            cpu_state_t::BRK_VECTOR_LO: return "BRK_VL";
+            cpu_state_t::BRK_VECTOR_HI: return "BRK_VH";
+            cpu_state_t::JSR_PUSH_LO  : return "JSR_LO";
+            cpu_state_t::RTS_PULL_LO  : return "RTS_LO";
+            cpu_state_t::RTS_PULL_HI  : return "RTS_HI";
+            default                   : return "UNKNOWN";
         }
     }
 
@@ -215,6 +225,17 @@ module cpu (
                         case (decode_entry.mode) {
                             addr_mode_t::IMPLIED: {
                                 case (decode_entry.inst_kind) {
+                                    inst_t::BRK: {
+                                        $display       ("[DECODE] PC=%04h OPCODE=BRK", reg_pc);
+                                        let brk_return_addr: logic<16> = reg_pc + decode_entry.len;
+                                        return_addr     = brk_return_addr;
+                                        cpubus.addr     = {8'h01, reg_sp};
+                                        cpubus.wdata    = brk_return_addr[15:8];
+                                        cpubus.wen      = 1'b1;
+                                        reg_sp          = reg_sp - 1;
+                                        state           = cpu_state_t::BRK_PUSH_LO;
+                                    }
+
                                     // IRQフラグ無効
                                     // ただし割り込み未実装のため現時点では意味はない
                                     inst_t::SEI: {
@@ -508,6 +529,41 @@ module cpu (
                         default: {
                             state = cpu_state_t::FETCH;
                         }
+                    }
+                }
+                cpu_state_t::BRK_PUSH_LO: {
+                    cpubus.addr  = {8'h01, reg_sp};
+                    cpubus.wdata = return_addr[7:0];
+                    cpubus.wen   = 1'b1;
+                    reg_sp       = reg_sp - 1;
+                    state        = cpu_state_t::BRK_PUSH_P;
+                }
+                cpu_state_t::BRK_PUSH_P: {
+                    cpubus.addr  = {8'h01, reg_sp};
+                    cpubus.wdata = reg_p | 8'h10;
+                    cpubus.wen   = 1'b1;
+                    reg_sp       = reg_sp - 1;
+                    reg_p[2]     = 1'b1;
+                    state        = cpu_state_t::BRK_VECTOR_LO;
+                }
+                cpu_state_t::BRK_VECTOR_LO: {
+                    cpubus.addr = 16'hFFFE;
+                    cpubus.wen  = 1'b0;
+                    mem_ready   = 1'b1;
+                    if (mem_ready) {
+                        mem_ready = 1'b0;
+                        op1       = cpubus.rdata;
+                        state     = cpu_state_t::BRK_VECTOR_HI;
+                    }
+                }
+                cpu_state_t::BRK_VECTOR_HI: {
+                    cpubus.addr = 16'hFFFF;
+                    cpubus.wen  = 1'b0;
+                    mem_ready   = 1'b1;
+                    if (mem_ready) {
+                        mem_ready = 1'b0;
+                        reg_pc    = {cpubus.rdata, op1};
+                        state     = cpu_state_t::FETCH;
                     }
                 }
                 cpu_state_t::JSR_PUSH_LO: {
