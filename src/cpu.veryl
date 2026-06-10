@@ -32,6 +32,7 @@ module cpu (
         CPX,
         STA,
         STX,
+        STY,
         BNE,
         BPL,
         JMP,
@@ -54,7 +55,7 @@ module cpu (
         mode     : addr_mode_t    ,
         len      : logic      <16>,
     }
-    const DECODE_TABLE: decode_entry_t [18] = '{
+    const DECODE_TABLE: decode_entry_t [19] = '{
         decode_entry_t'{opcode: 8'h78, inst_kind: inst_t::SEI, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'hD8, inst_kind: inst_t::CLD, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h9A, inst_kind: inst_t::TXS, mode: addr_mode_t::IMPLIED, len: 1,},
@@ -70,6 +71,7 @@ module cpu (
         decode_entry_t'{opcode: 8'h85, inst_kind: inst_t::STA, mode: addr_mode_t::ZP, len: 2,},
         decode_entry_t'{opcode: 8'h8D, inst_kind: inst_t::STA, mode: addr_mode_t::ABS, len: 3,},
         decode_entry_t'{opcode: 8'h8E, inst_kind: inst_t::STX, mode: addr_mode_t::ABS, len: 3,},
+        decode_entry_t'{opcode: 8'h8C, inst_kind: inst_t::STY, mode: addr_mode_t::ABS, len: 3,},
         decode_entry_t'{opcode: 8'hD0, inst_kind: inst_t::BNE, mode: addr_mode_t::REL, len: 2,},
         decode_entry_t'{opcode: 8'h10, inst_kind: inst_t::BPL, mode: addr_mode_t::REL, len: 2,},
         decode_entry_t'{opcode: 8'h4C, inst_kind: inst_t::JMP, mode: addr_mode_t::ABS, len: 3,},
@@ -408,6 +410,14 @@ module cpu (
                             $display    ("[EXECUTE] PC=%04h OPCODE=STX_ABS", reg_pc);
                             cpubus.addr  = {cpubus.rdata, op1};
                             cpubus.wdata = reg_x;
+                            cpubus.wen   = 1'b1;
+                            reg_pc       = reg_pc + inst_len;
+                            state        = cpu_state_t::FETCH;
+                        }
+                        inst_t::STY: {
+                            $display    ("[EXECUTE] PC=%04h OPCODE=STY_ABS", reg_pc);
+                            cpubus.addr  = {cpubus.rdata, op1};
+                            cpubus.wdata = reg_y;
                             cpubus.wen   = 1'b1;
                             reg_pc       = reg_pc + inst_len;
                             state        = cpu_state_t::FETCH;
