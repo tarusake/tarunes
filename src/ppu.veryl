@@ -68,6 +68,15 @@ module ppu (
     always_ff {
         if_reset {
             cpubus.rdata = 0;
+        } else {
+            case (cpubus.addr) {
+                2: {
+                    cpubus.rdata = if scanline >= 241 && scanline <= 260 ? 8'h80 : 8'h00;
+                }
+                default: {
+                    cpubus.rdata = 0;
+                }
+            }
         }
     }
 
