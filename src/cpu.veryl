@@ -46,6 +46,7 @@ module cpu (
         BNE,
         BEQ,
         BPL,
+        BMI,
         BVS,
         JMP,
         JSR,
@@ -73,7 +74,7 @@ module cpu (
         mode     : addr_mode_t    ,
         len      : logic      <16>,
     }
-    const DECODE_TABLE: decode_entry_t [52] = '{
+    const DECODE_TABLE: decode_entry_t [53] = '{
         decode_entry_t'{opcode: 8'h00, inst_kind: inst_t::BRK, mode: addr_mode_t::IMPLIED, len: 2,},
         decode_entry_t'{opcode: 8'h28, inst_kind: inst_t::PLP, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h78, inst_kind: inst_t::SEI, mode: addr_mode_t::IMPLIED, len: 1,},
@@ -122,6 +123,7 @@ module cpu (
         decode_entry_t'{opcode: 8'hD0, inst_kind: inst_t::BNE, mode: addr_mode_t::REL, len: 2,},
         decode_entry_t'{opcode: 8'hF0, inst_kind: inst_t::BEQ, mode: addr_mode_t::REL, len: 2,},
         decode_entry_t'{opcode: 8'h10, inst_kind: inst_t::BPL, mode: addr_mode_t::REL, len: 2,},
+        decode_entry_t'{opcode: 8'h30, inst_kind: inst_t::BMI, mode: addr_mode_t::REL, len: 2,},
         decode_entry_t'{opcode: 8'h70, inst_kind: inst_t::BVS, mode: addr_mode_t::REL, len: 2,},
         decode_entry_t'{opcode: 8'h4C, inst_kind: inst_t::JMP, mode: addr_mode_t::ABS, len: 3,},
         decode_entry_t'{opcode: 8'h20, inst_kind: inst_t::JSR, mode: addr_mode_t::ABS, len: 3,},
@@ -587,6 +589,17 @@ module cpu (
                         inst_t::BPL: {
                             $display("[EXECUTE] PC=%04h OPCODE=BPL", reg_pc);
                             if (reg_p[7] == 0) {
+                                reg_pc = $signed(reg_pc) + 2 + {cpubus.rdata[7] repeat 8, cpubus.rdata};
+                            } else {
+                                reg_pc = reg_pc + 2;
+                            }
+                            state = cpu_state_t::FETCH;
+                        }
+
+                        // N=1なら分岐する
+                        inst_t::BMI: {
+                            $display("[EXECUTE] PC=%04h OPCODE=BMI", reg_pc);
+                            if (reg_p[7] == 1) {
                                 reg_pc = $signed(reg_pc) + 2 + {cpubus.rdata[7] repeat 8, cpubus.rdata};
                             } else {
                                 reg_pc = reg_pc + 2;
