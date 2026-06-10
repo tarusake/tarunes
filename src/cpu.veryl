@@ -41,6 +41,7 @@ module cpu (
     enum addr_mode_t {
         IMPLIED,
         IMM,
+        ZP,
         ABS,
         ABSX,
         REL,
@@ -53,7 +54,7 @@ module cpu (
         mode     : addr_mode_t    ,
         len      : logic      <16>,
     }
-    const DECODE_TABLE: decode_entry_t [17] = '{
+    const DECODE_TABLE: decode_entry_t [18] = '{
         decode_entry_t'{opcode: 8'h78, inst_kind: inst_t::SEI, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'hD8, inst_kind: inst_t::CLD, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h9A, inst_kind: inst_t::TXS, mode: addr_mode_t::IMPLIED, len: 1,},
@@ -66,6 +67,7 @@ module cpu (
         decode_entry_t'{opcode: 8'hA2, inst_kind: inst_t::LDX, mode: addr_mode_t::IMM, len: 2,},
         decode_entry_t'{opcode: 8'hA0, inst_kind: inst_t::LDY, mode: addr_mode_t::IMM, len: 2,},
         decode_entry_t'{opcode: 8'hE0, inst_kind: inst_t::CPX, mode: addr_mode_t::IMM, len: 2,},
+        decode_entry_t'{opcode: 8'h85, inst_kind: inst_t::STA, mode: addr_mode_t::ZP, len: 2,},
         decode_entry_t'{opcode: 8'h8D, inst_kind: inst_t::STA, mode: addr_mode_t::ABS, len: 3,},
         decode_entry_t'{opcode: 8'h8E, inst_kind: inst_t::STX, mode: addr_mode_t::ABS, len: 3,},
         decode_entry_t'{opcode: 8'hD0, inst_kind: inst_t::BNE, mode: addr_mode_t::REL, len: 2,},
@@ -249,7 +251,7 @@ module cpu (
                                     }
                                 }
                             }
-                            addr_mode_t::IMM, addr_mode_t::REL: {
+                            addr_mode_t::IMM, addr_mode_t::ZP, addr_mode_t::REL: {
                                 cpubus.addr = reg_pc + 1;
                                 mem_ready   = 1;
                                 if (mem_ready) {
@@ -391,8 +393,12 @@ module cpu (
                             state    = cpu_state_t::FETCH;
                         }
                         inst_t::STA: {
-                            $display    ("[EXECUTE] PC=%04h OPCODE=STA_ABS", reg_pc);
-                            cpubus.addr  = {cpubus.rdata, op1};
+                            $display    ("[EXECUTE] PC=%04h OPCODE=STA", reg_pc);
+                            cpubus.addr  = if addr_mode == addr_mode_t::ZP ?
+                                {8'h00, cpubus.rdata}
+                            :
+                                {cpubus.rdata, op1}
+                            ;
                             cpubus.wdata = reg_a;
                             cpubus.wen   = 1'b1;
                             reg_pc       = reg_pc + inst_len;
