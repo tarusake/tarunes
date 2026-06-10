@@ -21,6 +21,7 @@ module cpu (
     enum inst_t {
         INVALID,
         SEI,
+        CLD,
         TXS,
         INX,
         DEY,
@@ -29,6 +30,7 @@ module cpu (
         LDY,
         STA,
         BNE,
+        BPL,
         JMP,
     }
     var decoded_inst: inst_t;
@@ -48,17 +50,20 @@ module cpu (
         mode     : addr_mode_t    ,
         len      : logic      <16>,
     }
-    const DECODE_TABLE: decode_entry_t [11] = '{
+    const DECODE_TABLE: decode_entry_t [14] = '{
         decode_entry_t'{opcode: 8'h78, inst_kind: inst_t::SEI, mode: addr_mode_t::IMPLIED, len: 1,},
+        decode_entry_t'{opcode: 8'hD8, inst_kind: inst_t::CLD, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h9A, inst_kind: inst_t::TXS, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'hE8, inst_kind: inst_t::INX, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h88, inst_kind: inst_t::DEY, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'hA9, inst_kind: inst_t::LDA, mode: addr_mode_t::IMM, len: 2,},
+        decode_entry_t'{opcode: 8'hAD, inst_kind: inst_t::LDA, mode: addr_mode_t::ABS, len: 3,},
         decode_entry_t'{opcode: 8'hBD, inst_kind: inst_t::LDA, mode: addr_mode_t::ABSX, len: 3,},
         decode_entry_t'{opcode: 8'hA2, inst_kind: inst_t::LDX, mode: addr_mode_t::IMM, len: 2,},
         decode_entry_t'{opcode: 8'hA0, inst_kind: inst_t::LDY, mode: addr_mode_t::IMM, len: 2,},
         decode_entry_t'{opcode: 8'h8D, inst_kind: inst_t::STA, mode: addr_mode_t::ABS, len: 3,},
         decode_entry_t'{opcode: 8'hD0, inst_kind: inst_t::BNE, mode: addr_mode_t::REL, len: 2,},
+        decode_entry_t'{opcode: 8'h10, inst_kind: inst_t::BPL, mode: addr_mode_t::REL, len: 2,},
         decode_entry_t'{opcode: 8'h4C, inst_kind: inst_t::JMP, mode: addr_mode_t::ABS, len: 3,},
     };
 
@@ -188,6 +193,13 @@ module cpu (
                                         reg_pc   = reg_pc + decode_entry.len;
                                     }
 
+                                    inst_t::CLD: {
+                                        $display("[DECODE] PC=%04h OPCODE=CLD", reg_pc);
+                                        reg_p[3] = 1'b0;
+                                        state    = cpu_state_t::FETCH;
+                                        reg_pc   = reg_pc + decode_entry.len;
+                                    }
+
                                     inst_t::TXS: {
                                         $display("[DECODE] PC=%04h OPCODE=TXS", reg_pc);
                                         reg_sp   = reg_x;
@@ -253,7 +265,11 @@ module cpu (
                             mem_ready   = 1;
                             if (mem_ready) {
                                 mem_ready = 0;
-                                state     = cpu_state_t::EXEC;
+                                if (decoded_inst == inst_t::LDA) {
+                                    state = cpu_state_t::OP2;
+                                } else {
+                                    state = cpu_state_t::EXEC;
+                                }
                             }
                         }
                         addr_mode_t::ABSX: {
@@ -273,6 +289,14 @@ module cpu (
 
                 cpu_state_t::OP2: {
                     case (addr_mode) {
+                        addr_mode_t::ABS: {
+                            cpubus.addr = {cpubus.rdata, op1};
+                            mem_ready   = 1;
+                            if (mem_ready) {
+                                mem_ready = 0;
+                                state     = cpu_state_t::EXEC;
+                            }
+                        }
                         addr_mode_t::ABSX: {
                             cpubus.addr = {cpubus.rdata, op1} + reg_x;
                             mem_ready   = 1;
@@ -293,6 +317,17 @@ module cpu (
                         inst_t::BNE: {
                             $display("[EXECUTE] PC=%04h OPCODE=BNE", reg_pc);
                             if (reg_p[1] == 0) {
+                                reg_pc = $signed(reg_pc) + 2 + {cpubus.rdata[7] repeat 8, cpubus.rdata};
+                            } else {
+                                reg_pc = reg_pc + 2;
+                            }
+                            state = cpu_state_t::FETCH;
+                        }
+
+                        // N=0なら分岐する
+                        inst_t::BPL: {
+                            $display("[EXECUTE] PC=%04h OPCODE=BPL", reg_pc);
+                            if (reg_p[7] == 0) {
                                 reg_pc = $signed(reg_pc) + 2 + {cpubus.rdata[7] repeat 8, cpubus.rdata};
                             } else {
                                 reg_pc = reg_pc + 2;
