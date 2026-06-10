@@ -15,8 +15,10 @@ module cpu (
     var mem_ready: logic;
 
     // opcode
-    var op1     : logic<8> ;
-    var inst_len: logic<16>;
+    var op1        : logic<8> ;
+    var op2        : logic<8> ;
+    var return_addr: logic<16>;
+    var inst_len   : logic<16>;
 
     enum inst_t {
         INVALID,
@@ -36,6 +38,7 @@ module cpu (
         BNE,
         BPL,
         JMP,
+        JSR,
     }
     var decoded_inst: inst_t;
 
@@ -55,7 +58,7 @@ module cpu (
         mode     : addr_mode_t    ,
         len      : logic      <16>,
     }
-    const DECODE_TABLE: decode_entry_t [19] = '{
+    const DECODE_TABLE: decode_entry_t [20] = '{
         decode_entry_t'{opcode: 8'h78, inst_kind: inst_t::SEI, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'hD8, inst_kind: inst_t::CLD, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h9A, inst_kind: inst_t::TXS, mode: addr_mode_t::IMPLIED, len: 1,},
@@ -75,6 +78,7 @@ module cpu (
         decode_entry_t'{opcode: 8'hD0, inst_kind: inst_t::BNE, mode: addr_mode_t::REL, len: 2,},
         decode_entry_t'{opcode: 8'h10, inst_kind: inst_t::BPL, mode: addr_mode_t::REL, len: 2,},
         decode_entry_t'{opcode: 8'h4C, inst_kind: inst_t::JMP, mode: addr_mode_t::ABS, len: 3,},
+        decode_entry_t'{opcode: 8'h20, inst_kind: inst_t::JSR, mode: addr_mode_t::ABS, len: 3,},
     };
 
     enum cpu_state_t {
@@ -87,6 +91,7 @@ module cpu (
         OP1,
         OP2,
         EXEC,
+        JSR_PUSH_LO,
     }
     var state: cpu_state_t;
 
@@ -94,16 +99,17 @@ module cpu (
         debug_state: input cpu_state_t,
     ) -> logic<64> {
         case (debug_state) {
-            cpu_state_t::RESET0: return "RESET0";
-            cpu_state_t::RESET1: return "RESET1";
-            cpu_state_t::RESET2: return "RESET2";
-            cpu_state_t::RESET3: return "RESET3";
-            cpu_state_t::FETCH : return "FETCH";
-            cpu_state_t::DECODE: return "DECODE";
-            cpu_state_t::OP1   : return "OP1";
-            cpu_state_t::OP2   : return "OP2";
-            cpu_state_t::EXEC  : return "EXEC";
-            default            : return "UNKNOWN";
+            cpu_state_t::RESET0     : return "RESET0";
+            cpu_state_t::RESET1     : return "RESET1";
+            cpu_state_t::RESET2     : return "RESET2";
+            cpu_state_t::RESET3     : return "RESET3";
+            cpu_state_t::FETCH      : return "FETCH";
+            cpu_state_t::DECODE     : return "DECODE";
+            cpu_state_t::OP1        : return "OP1";
+            cpu_state_t::OP2        : return "OP2";
+            cpu_state_t::EXEC       : return "EXEC";
+            cpu_state_t::JSR_PUSH_LO: return "JSR_LO";
+            default                 : return "UNKNOWN";
         }
     }
 
@@ -145,6 +151,8 @@ module cpu (
             reg_pc       = 0;
             mem_ready    = 0;
             op1          = 0;
+            op2          = 0;
+            return_addr  = 0;
             inst_len     = 0;
             decoded_inst = inst_t::INVALID;
             addr_mode    = addr_mode_t::IMPLIED;
@@ -361,6 +369,18 @@ module cpu (
                             state    = cpu_state_t::FETCH;
                         }
 
+                        inst_t::JSR: {
+                            $display       ("[EXECUTE] PC=%04h OPCODE=JSR_ABS", reg_pc);
+                            let jsr_return_addr: logic<16> = reg_pc + 16'd2;
+                            return_addr     = jsr_return_addr;
+                            op2             = cpubus.rdata;
+                            cpubus.addr     = {8'h01, reg_sp};
+                            cpubus.wdata    = jsr_return_addr[15:8];
+                            cpubus.wen      = 1'b1;
+                            reg_sp          = reg_sp - 1;
+                            state           = cpu_state_t::JSR_PUSH_LO;
+                        }
+
                         inst_t::LDA: {
                             $display("[EXECUTE] PC=%04h LDA_XXX", reg_pc);
                             reg_a    = cpubus.rdata;
@@ -426,6 +446,14 @@ module cpu (
                             state = cpu_state_t::FETCH;
                         }
                     }
+                }
+                cpu_state_t::JSR_PUSH_LO: {
+                    cpubus.addr  = {8'h01, reg_sp};
+                    cpubus.wdata = return_addr[7:0];
+                    cpubus.wen   = 1'b1;
+                    reg_sp       = reg_sp - 1;
+                    reg_pc       = {op2, op1};
+                    state        = cpu_state_t::FETCH;
                 }
                 default: {
                     state = cpu_state_t::RESET0;
