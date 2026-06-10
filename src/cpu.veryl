@@ -34,6 +34,7 @@ module cpu (
         CLD,
         CLC,
         TXS,
+        TXA,
         INX,
         INY,
         INC,
@@ -81,7 +82,7 @@ module cpu (
         mode     : addr_mode_t    ,
         len      : logic      <16>,
     }
-    const DECODE_TABLE: decode_entry_t [59] = '{
+    const DECODE_TABLE: decode_entry_t [60] = '{
         decode_entry_t'{opcode: 8'h00, inst_kind: inst_t::BRK, mode: addr_mode_t::IMPLIED, len: 2,},
         decode_entry_t'{opcode: 8'h40, inst_kind: inst_t::RTI, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h48, inst_kind: inst_t::PHA, mode: addr_mode_t::IMPLIED, len: 1,},
@@ -91,6 +92,7 @@ module cpu (
         decode_entry_t'{opcode: 8'hD8, inst_kind: inst_t::CLD, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h18, inst_kind: inst_t::CLC, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h9A, inst_kind: inst_t::TXS, mode: addr_mode_t::IMPLIED, len: 1,},
+        decode_entry_t'{opcode: 8'h8A, inst_kind: inst_t::TXA, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'hE8, inst_kind: inst_t::INX, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'hC8, inst_kind: inst_t::INY, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'hE6, inst_kind: inst_t::INC, mode: addr_mode_t::ZP, len: 2,},
@@ -410,6 +412,15 @@ module cpu (
                                         // TXSはフラグ更新しない
                                         state  = cpu_state_t::FETCH;
                                         reg_pc = reg_pc + decode_entry.len;
+                                    }
+
+                                    inst_t::TXA: {
+                                        $display("[DECODE] PC=%04h OPCODE=TXA", reg_pc);
+                                        reg_a    = reg_x;
+                                        reg_p[1] = (reg_x == 0);
+                                        reg_p[7] = reg_x[7];
+                                        state    = cpu_state_t::FETCH;
+                                        reg_pc   = reg_pc + decode_entry.len;
                                     }
 
                                     inst_t::INX: {
