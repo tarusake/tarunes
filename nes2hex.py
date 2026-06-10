@@ -35,6 +35,11 @@ def main():
         prg_data = f.read(prg_size)
         chr_data = f.read(chr_size)
 
+    # NROM-128 (16KB PRG) maps the same bank at $8000-$BFFF and $C000-$FFFF.
+    # The RTL PROM is 32KB wide, so expand it here to make reset vectors visible.
+    if prg_size == 16 * 1024:
+        prg_data = prg_data + prg_data
+
     # 出力ファイル名
     prg_out = f"{base_name}_prg.hex"
     chr_out = f"{base_name}_chr.hex"
