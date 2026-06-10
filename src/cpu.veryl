@@ -311,7 +311,10 @@ module cpu (
                                         cpubus.addr = {8'h01, reg_sp + 8'd1};
                                         cpubus.wen  = 1'b0;
                                         mem_ready   = 1'b1;
-                                        state       = cpu_state_t::RTS_PULL_LO;
+                                        if (mem_ready) {
+                                            mem_ready = 0;
+                                            state     = cpu_state_t::RTS_PULL_LO;
+                                        }
                                     }
 
                                     default: {
@@ -621,20 +624,20 @@ module cpu (
                     state        = cpu_state_t::FETCH;
                 }
                 cpu_state_t::RTS_PULL_LO: {
+                    op1         = cpubus.rdata;
+                    cpubus.addr = {8'h01, reg_sp + 8'd2};
+                    reg_sp      = reg_sp + 1;
+                    mem_ready   = 1'b1;
                     if (mem_ready) {
-                        op1         = cpubus.rdata;
-                        cpubus.addr = {8'h01, reg_sp + 8'd2};
-                        reg_sp      = reg_sp + 1;
-                        state       = cpu_state_t::RTS_PULL_HI;
+                        mem_ready = 1'b0;
+                        state     = cpu_state_t::RTS_PULL_HI;
                     }
                 }
                 cpu_state_t::RTS_PULL_HI: {
-                    if (mem_ready) {
-                        mem_ready = 1'b0;
-                        reg_sp    = reg_sp + 1;
-                        reg_pc    = {cpubus.rdata, op1} + 16'd1;
-                        state     = cpu_state_t::FETCH;
-                    }
+                    mem_ready = 1'b0;
+                    reg_sp    = reg_sp + 1;
+                    reg_pc    = {cpubus.rdata, op1} + 16'd1;
+                    state     = cpu_state_t::FETCH;
                 }
                 default: {
                     state = cpu_state_t::RESET0;
