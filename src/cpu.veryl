@@ -105,7 +105,7 @@ module cpu (
         mode     : addr_mode_t    ,
         len      : logic      <16>,
     }
-    const DECODE_TABLE: decode_entry_t [139] = '{
+    const DECODE_TABLE: decode_entry_t [141] = '{
         decode_entry_t'{opcode: 8'h00, inst_kind: inst_t::BRK, mode: addr_mode_t::IMPLIED, len: 2,},
         decode_entry_t'{opcode: 8'h40, inst_kind: inst_t::RTI, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h48, inst_kind: inst_t::PHA, mode: addr_mode_t::IMPLIED, len: 1,},
@@ -210,6 +210,8 @@ module cpu (
         decode_entry_t'{opcode: 8'h2D, inst_kind: inst_t::AND, mode: addr_mode_t::ABS, len: 3,},
         decode_entry_t'{opcode: 8'h3D, inst_kind: inst_t::AND, mode: addr_mode_t::ABSX, len: 3,},
         decode_entry_t'{opcode: 8'h39, inst_kind: inst_t::AND, mode: addr_mode_t::ABSY, len: 3,},
+        decode_entry_t'{opcode: 8'h21, inst_kind: inst_t::AND, mode: addr_mode_t::INDX, len: 2,},
+        decode_entry_t'{opcode: 8'h31, inst_kind: inst_t::AND, mode: addr_mode_t::INDY, len: 2,},
         decode_entry_t'{opcode: 8'h49, inst_kind: inst_t::EOR, mode: addr_mode_t::IMM, len: 2,},
         decode_entry_t'{opcode: 8'h45, inst_kind: inst_t::EOR, mode: addr_mode_t::ZP, len: 2,},
         decode_entry_t'{opcode: 8'h55, inst_kind: inst_t::EOR, mode: addr_mode_t::ZPX, len: 2,},
