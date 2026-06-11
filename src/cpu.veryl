@@ -18,6 +18,8 @@ module cpu (
     // opcode
     var op1        : logic<8> ;
     var op2        : logic<8> ;
+    var ptr_addr   : logic<8> ;
+    var eff_addr   : logic<16>;
     var return_addr: logic<16>;
     var inst_len   : logic<16>;
     var nmi_d      : logic    ;
@@ -869,6 +871,7 @@ module cpu (
                             }
                         }
                         addr_mode_t::INDX: {
+                            ptr_addr    = cpubus.rdata + reg_x;
                             cpubus.addr = {8'h00, cpubus.rdata + reg_x};
                             mem_ready   = 1;
                             if (mem_ready) {
@@ -877,6 +880,7 @@ module cpu (
                             }
                         }
                         addr_mode_t::INDY: {
+                            ptr_addr    = cpubus.rdata;
                             cpubus.addr = {8'h00, cpubus.rdata};
                             mem_ready   = 1;
                             if (mem_ready) {
@@ -927,7 +931,7 @@ module cpu (
                     case (addr_mode) {
                         addr_mode_t::INDX, addr_mode_t::INDY: {
                             op1         = cpubus.rdata;
-                            cpubus.addr = {8'h00, cpubus.addr[7:0] + 8'd1};
+                            cpubus.addr = {8'h00, ptr_addr + 8'd1};
                             mem_ready   = 1;
                             if (mem_ready) {
                                 mem_ready = 0;
@@ -943,6 +947,7 @@ module cpu (
                 cpu_state_t::OP4: {
                     case (addr_mode) {
                         addr_mode_t::INDX: {
+                            eff_addr    = {cpubus.rdata, op1};
                             cpubus.addr = {cpubus.rdata, op1};
                             mem_ready   = 1;
                             if (mem_ready) {
@@ -951,6 +956,7 @@ module cpu (
                             }
                         }
                         addr_mode_t::INDY: {
+                            eff_addr    = {cpubus.rdata, op1} + reg_y;
                             cpubus.addr = {cpubus.rdata, op1} + reg_y;
                             mem_ready   = 1;
                             if (mem_ready) {
@@ -1291,8 +1297,9 @@ module cpu (
                                 {8'h00, cpubus.rdata}
                             : if addr_mode == addr_mode_t::ZPX ?
                                 {8'h00, cpubus.rdata + reg_x}
-                            : if addr_mode == addr_mode_t::ABSX || addr_mode == addr_mode_t::ABSY || addr_mode
-                                == addr_mode_t::INDX || addr_mode == addr_mode_t::INDY ?
+                            : if addr_mode == addr_mode_t::INDX || addr_mode == addr_mode_t::INDY ?
+                                eff_addr
+                            : if addr_mode == addr_mode_t::ABSX || addr_mode == addr_mode_t::ABSY ?
                                 cpubus.addr
                             :
                                 {cpubus.rdata, op1}
