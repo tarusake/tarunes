@@ -34,6 +34,7 @@ module cpu (
         SEC,
         CLD,
         CLC,
+        NOP,
         TXS,
         TAX,
         TXA,
@@ -95,7 +96,7 @@ module cpu (
         mode     : addr_mode_t    ,
         len      : logic      <16>,
     }
-    const DECODE_TABLE: decode_entry_t [100] = '{
+    const DECODE_TABLE: decode_entry_t [101] = '{
         decode_entry_t'{opcode: 8'h00, inst_kind: inst_t::BRK, mode: addr_mode_t::IMPLIED, len: 2,},
         decode_entry_t'{opcode: 8'h40, inst_kind: inst_t::RTI, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h48, inst_kind: inst_t::PHA, mode: addr_mode_t::IMPLIED, len: 1,},
@@ -105,6 +106,7 @@ module cpu (
         decode_entry_t'{opcode: 8'h38, inst_kind: inst_t::SEC, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'hD8, inst_kind: inst_t::CLD, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h18, inst_kind: inst_t::CLC, mode: addr_mode_t::IMPLIED, len: 1,},
+        decode_entry_t'{opcode: 8'hEA, inst_kind: inst_t::NOP, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h9A, inst_kind: inst_t::TXS, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'hAA, inst_kind: inst_t::TAX, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h8A, inst_kind: inst_t::TXA, mode: addr_mode_t::IMPLIED, len: 1,},
@@ -470,6 +472,12 @@ module cpu (
                                     inst_t::CLC: {
                                         $display("[DECODE] PC=%04h OPCODE=CLC", reg_pc);
                                         reg_p[0] = 1'b0;
+                                        state    = cpu_state_t::FETCH;
+                                        reg_pc   = reg_pc + decode_entry.len;
+                                    }
+
+                                    inst_t::NOP: {
+                                        $display("[DECODE] PC=%04h OPCODE=NOP", reg_pc);
                                         state    = cpu_state_t::FETCH;
                                         reg_pc   = reg_pc + decode_entry.len;
                                     }
