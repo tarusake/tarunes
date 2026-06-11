@@ -105,7 +105,7 @@ module cpu (
         mode     : addr_mode_t    ,
         len      : logic      <16>,
     }
-    const DECODE_TABLE: decode_entry_t [141] = '{
+    const DECODE_TABLE: decode_entry_t [145] = '{
         decode_entry_t'{opcode: 8'h00, inst_kind: inst_t::BRK, mode: addr_mode_t::IMPLIED, len: 2,},
         decode_entry_t'{opcode: 8'h40, inst_kind: inst_t::RTI, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h48, inst_kind: inst_t::PHA, mode: addr_mode_t::IMPLIED, len: 1,},
@@ -168,6 +168,10 @@ module cpu (
         decode_entry_t'{opcode: 8'hAE, inst_kind: inst_t::LDX, mode: addr_mode_t::ABS, len: 3,},
         decode_entry_t'{opcode: 8'hBE, inst_kind: inst_t::LDX, mode: addr_mode_t::ABSY, len: 3,},
         decode_entry_t'{opcode: 8'hA0, inst_kind: inst_t::LDY, mode: addr_mode_t::IMM, len: 2,},
+        decode_entry_t'{opcode: 8'hA4, inst_kind: inst_t::LDY, mode: addr_mode_t::ZP, len: 2,},
+        decode_entry_t'{opcode: 8'hB4, inst_kind: inst_t::LDY, mode: addr_mode_t::ZPX, len: 2,},
+        decode_entry_t'{opcode: 8'hAC, inst_kind: inst_t::LDY, mode: addr_mode_t::ABS, len: 3,},
+        decode_entry_t'{opcode: 8'hBC, inst_kind: inst_t::LDY, mode: addr_mode_t::ABSX, len: 3,},
         decode_entry_t'{opcode: 8'hE0, inst_kind: inst_t::CPX, mode: addr_mode_t::IMM, len: 2,},
         decode_entry_t'{opcode: 8'hC0, inst_kind: inst_t::CPY, mode: addr_mode_t::IMM, len: 2,},
         decode_entry_t'{opcode: 8'hC4, inst_kind: inst_t::CPY, mode: addr_mode_t::ZP, len: 2,},
@@ -728,6 +732,8 @@ module cpu (
                                             != addr_mode_t::IMM)
                                         || (decode_entry.inst_kind == inst_t::LDX && decode_entry.mode
                                             != addr_mode_t::IMM)
+                                        || (decode_entry.inst_kind == inst_t::LDY && decode_entry.mode
+                                            != addr_mode_t::IMM)
                                         || (decode_entry.inst_kind == inst_t::CPY && decode_entry.mode
                                             != addr_mode_t::IMM)
                                         || (decode_entry.inst_kind == inst_t::CMP && decode_entry.mode
@@ -779,11 +785,12 @@ module cpu (
                             if (mem_ready) {
                                 mem_ready = 0;
                                 if (decoded_inst == inst_t::LDA || decoded_inst == inst_t::BIT || decoded_inst
-                                    == inst_t::LDX || decoded_inst == inst_t::CPY || decoded_inst == inst_t::CMP
-                                    || decoded_inst == inst_t::INC || decoded_inst == inst_t::ASL || decoded_inst
-                                    == inst_t::LSR || decoded_inst == inst_t::ROL || decoded_inst == inst_t::ROR
-                                    || decoded_inst == inst_t::ADC || decoded_inst == inst_t::SBC || decoded_inst
-                                    == inst_t::ORA || decoded_inst == inst_t::AND || decoded_inst == inst_t::EOR) {
+                                    == inst_t::LDX || decoded_inst == inst_t::LDY || decoded_inst == inst_t::CPY
+                                    || decoded_inst == inst_t::CMP || decoded_inst == inst_t::INC || decoded_inst
+                                    == inst_t::ASL || decoded_inst == inst_t::LSR || decoded_inst == inst_t::ROL
+                                    || decoded_inst == inst_t::ROR || decoded_inst == inst_t::ADC || decoded_inst
+                                    == inst_t::SBC || decoded_inst == inst_t::ORA || decoded_inst == inst_t::AND
+                                    || decoded_inst == inst_t::EOR) {
                                     state = cpu_state_t::OP2;
                                 } else {
                                     state = cpu_state_t::EXEC;
