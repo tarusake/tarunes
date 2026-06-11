@@ -1,15 +1,22 @@
 module controller (
     clk             : input   clock                   ,
     rst             : input   reset                   ,
+    sel             : input   logic                   ,
     controller1_btns: input   logic                <8>,
     controller2_btns: input   logic                <8>,
     cpubus          : modport bus_if::<8, 1>::slave   ,
 ) {
-    var strobe: logic   ;
-    var shift1: logic<8>;
-    var shift2: logic<8>;
-    var count1: logic<4>;
-    var count2: logic<4>;
+    var strobe    : logic   ;
+    var shift1    : logic<8>;
+    var shift2    : logic<8>;
+    var count1    : logic<4>;
+    var count2    : logic<4>;
+    var sel_d     : logic   ;
+    var read_pulse: logic   ;
+
+    // TODO: bus_ifにread enableを追加したら、sel立ち上がりではなく
+    // CPUの実readサイクル1回だけでシフトするように置き換える。
+    assign read_pulse = sel && !sel_d && !cpubus.wen;
 
     always_ff {
         if_reset {
@@ -19,7 +26,10 @@ module controller (
             shift2       = 0;
             count1       = 0;
             count2       = 0;
+            sel_d        = 0;
         } else {
+            sel_d = sel;
+
             if (strobe) {
                 shift1 = controller1_btns;
                 shift2 = controller2_btns;
@@ -27,26 +37,45 @@ module controller (
                 count2 = 0;
             }
 
-            if (cpubus.wen && cpubus.addr == 0) {
-                strobe = cpubus.wdata[0];
+            if (sel && cpubus.wen && cpubus.addr == 0) {
+                $display(
+                    "[CTRL WRITE] addr=4016 wdata=%02h strobe_next=%0b count=%0d shift=%02h btns=%02h",
+                    cpubus.wdata,
+                    cpubus.wdata[0],
+                    count1,
+                    shift1,
+                    controller1_btns,
+                );
+                strobe   = cpubus.wdata[0];
                 if (cpubus.wdata[0]) {
                     shift1 = controller1_btns;
                     shift2 = controller2_btns;
                     count1 = 0;
                     count2 = 0;
                 }
-            } else if (!cpubus.wen) {
+            } else if (sel && !cpubus.wen) {
                 case (cpubus.addr) {
                     0: {
-                        cpubus.rdata = {7'b0000000, if count1 <: 8 ? shift1[0] : 1'b1};
-                        if (!strobe && count1 <: 8) {
+                        let read1_bit   : logic    = if count1 <: 8 ? shift1[0] : 1'b1;
+                        let read1_data  : logic<8> = {7'b0000000, read1_bit};
+                        cpubus.rdata = read1_data;
+                        $display    (
+                            "[CTRL READ] addr=4016 count=%0d shift=%02h btns=%02h strobe=%0b rdata=%02h bit=%0b",
+                            count1,
+                            shift1,
+                            controller1_btns,
+                            strobe,
+                            read1_data,
+                            read1_bit,
+                        );
+                        if (read_pulse && !strobe && count1 <: 8) {
                             shift1 = {1'b1, shift1[7:1]};
                             count1 = count1 + 1;
                         }
                     }
                     1: {
                         cpubus.rdata = {7'b0000000, if count2 <: 8 ? shift2[0] : 1'b1};
-                        if (!strobe && count2 <: 8) {
+                        if (read_pulse && !strobe && count2 <: 8) {
                             shift2 = {1'b1, shift2[7:1]};
                             count2 = count2 + 1;
                         }

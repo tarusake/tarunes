@@ -17,7 +17,8 @@ module top #(
     inst ctrlbus   : bus_if::<8, 1>;
     inst wrambus   : bus_if::<8, 11>;
     inst prombus   : bus_if::<8, 15>;
-    var nmi: logic;
+    var nmi     : logic;
+    var ctrl_sel: logic;
 
     inst ppubus : bus_if::<8, 14>;
     inst vrambus: bus_if::<8, 11>;
@@ -42,10 +43,13 @@ module top #(
     inst controller_inst: controller (
         clk             : clk             ,
         rst             : rst             ,
+        sel             : ctrl_sel        ,
         controller1_btns: controller1_btns,
         controller2_btns: controller2_btns,
         cpubus          : ctrlbus         ,
     );
+
+    assign ctrl_sel = cpubus.addr == 16'h4016 || cpubus.addr == 16'h4017;
 
     inst ppu_inst: ppu (
         clk     : clk       ,

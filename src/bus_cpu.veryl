@@ -22,7 +22,7 @@ module bus_cpu (
     // address assign
     assign prombus.addr    = if sel_prom ? cpubus.addr : 'x;
     assign cpu_ppubus.addr = if sel_ppu ? cpubus.addr : 'x;
-    assign ctrlbus.addr    = if sel_ctrl ? cpubus.addr[0] : 'x;
+    assign ctrlbus.addr    = cpubus.addr[0];
     assign wrambus.addr    = if sel_wram ? cpubus.addr : 'x;
 
     // Write bus assign
@@ -30,8 +30,8 @@ module bus_cpu (
     assign wrambus.wen      = if sel_wram ? cpubus.wen : 'x;
     assign cpu_ppubus.wdata = if sel_ppu ? cpubus.wdata : 'x;
     assign cpu_ppubus.wen   = if sel_ppu ? cpubus.wen : 'x;
-    assign ctrlbus.wdata    = if sel_ctrl ? cpubus.wdata : 'x;
-    assign ctrlbus.wen      = if sel_ctrl ? cpubus.wen : 'x;
+    assign ctrlbus.wdata    = cpubus.wdata;
+    assign ctrlbus.wen      = sel_ctrl && cpubus.wen;
 
     // rom
     assign prombus.wdata = 0;
