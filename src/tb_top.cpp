@@ -67,15 +67,48 @@ int main(int argc, char** argv) {
 
     dut->clk = 0;
     dut->rst = 0;
+    dut->controller1_btns = 0;
+    dut->controller2_btns = 0;
 
     const int RESET_CYCLES = 4;
-    const int MAX_FRAMES = 10;  // 10フレームで終了
     int frame_count = 0;
     int prev_scanline = 0;
     bool running = true;
+    uint8_t controller1_btns = 0;
 
     // メインループ
-    while (running && frame_count < MAX_FRAMES) {
+    while (running) {
+        SDL_Event event;
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_QUIT) {
+                running = false;
+            } else if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) {
+                bool pressed = event.type == SDL_KEYDOWN;
+                uint8_t mask = 0;
+                switch (event.key.keysym.sym) {
+                    case SDLK_z:      mask = 1 << 0; break; // A
+                    case SDLK_x:      mask = 1 << 1; break; // B
+                    case SDLK_RSHIFT: mask = 1 << 2; break; // Select
+                    case SDLK_RETURN: mask = 1 << 3; break; // Start
+                    case SDLK_UP:     mask = 1 << 4; break;
+                    case SDLK_DOWN:   mask = 1 << 5; break;
+                    case SDLK_LEFT:   mask = 1 << 6; break;
+                    case SDLK_RIGHT:  mask = 1 << 7; break;
+                    case SDLK_ESCAPE: running = false; break;
+                    default: break;
+                }
+
+                if (mask != 0) {
+                    if (pressed) {
+                        controller1_btns |= mask;
+                    } else {
+                        controller1_btns &= ~mask;
+                    }
+                }
+            }
+        }
+        dut->controller1_btns = controller1_btns;
+        dut->controller2_btns = 0;
 
         // 1サイクルシミュレーション
         for (int half = 0; half < 2; half++) {

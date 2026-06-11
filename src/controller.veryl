@@ -1,0 +1,61 @@
+module controller (
+    clk             : input   clock                   ,
+    rst             : input   reset                   ,
+    controller1_btns: input   logic                <8>,
+    controller2_btns: input   logic                <8>,
+    cpubus          : modport bus_if::<8, 1>::slave   ,
+) {
+    var strobe: logic   ;
+    var shift1: logic<8>;
+    var shift2: logic<8>;
+    var count1: logic<4>;
+    var count2: logic<4>;
+
+    always_ff {
+        if_reset {
+            cpubus.rdata = 0;
+            strobe       = 0;
+            shift1       = 0;
+            shift2       = 0;
+            count1       = 0;
+            count2       = 0;
+        } else {
+            if (strobe) {
+                shift1 = controller1_btns;
+                shift2 = controller2_btns;
+                count1 = 0;
+                count2 = 0;
+            }
+
+            if (cpubus.wen && cpubus.addr == 0) {
+                strobe = cpubus.wdata[0];
+                if (cpubus.wdata[0]) {
+                    shift1 = controller1_btns;
+                    shift2 = controller2_btns;
+                    count1 = 0;
+                    count2 = 0;
+                }
+            } else if (!cpubus.wen) {
+                case (cpubus.addr) {
+                    0: {
+                        cpubus.rdata = {7'b0000000, if count1 <: 8 ? shift1[0] : 1'b1};
+                        if (!strobe && count1 <: 8) {
+                            shift1 = {1'b1, shift1[7:1]};
+                            count1 = count1 + 1;
+                        }
+                    }
+                    1: {
+                        cpubus.rdata = {7'b0000000, if count2 <: 8 ? shift2[0] : 1'b1};
+                        if (!strobe && count2 <: 8) {
+                            shift2 = {1'b1, shift2[7:1]};
+                            count2 = count2 + 1;
+                        }
+                    }
+                    default: {
+                        cpubus.rdata = 0;
+                    }
+                }
+            }
+        }
+    }
+}
