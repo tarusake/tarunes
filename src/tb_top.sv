@@ -4,13 +4,17 @@ module tb_top;
 
     reg clk = 0;
     reg rst = 0;
+    reg [7:0] controller1_btns = 8'h00;
+    reg [7:0] controller2_btns = 8'h00;
 
     tarunes_top #(
         .PROM_PATH("helloworld_prg.hex")
         )
         dut (
         .clk(clk),
-        .rst(rst)
+        .rst(rst),
+        .controller1_btns(controller1_btns),
+        .controller2_btns(controller2_btns)
     );
 
     // クロック生成（10ns = 100MHz）

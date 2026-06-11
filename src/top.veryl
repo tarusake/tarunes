@@ -2,24 +2,29 @@ module top #(
     param PROM_PATH: string = "",
     param CROM_PATH: string = "",
 ) (
-    clk     : input  clock   ,
-    rst     : input  reset   ,
-    scanline: output logic<9>,
-    cycle   : output logic<9>,
-    pixel_r : output logic<8>,
-    pixel_g : output logic<8>,
-    pixel_b : output logic<8>,
+    clk             : input  clock   ,
+    rst             : input  reset   ,
+    controller1_btns: input  logic<8>,
+    controller2_btns: input  logic<8>,
+    scanline        : output logic<9>,
+    cycle           : output logic<9>,
+    pixel_r         : output logic<8>,
+    pixel_g         : output logic<8>,
+    pixel_b         : output logic<8>,
 ) {
     inst cpubus    : bus_if::<8, 16>;
     inst cpu_ppubus: bus_if::<8, 3>;
+    inst ctrlbus   : bus_if::<8, 1>;
     inst wrambus   : bus_if::<8, 11>;
     inst prombus   : bus_if::<8, 15>;
+    var nmi     : logic;
+    var ctrl_sel: logic;
 
     inst ppubus : bus_if::<8, 14>;
     inst vrambus: bus_if::<8, 11>;
     inst crombus: bus_if::<8, 13>;
 
-    inst cpu_inst: cpu ( clk: clk, rst: rst, cpubus: cpubus );
+    inst cpu_inst: cpu ( clk: clk, rst: rst, nmi: nmi, cpubus: cpubus );
 
     inst wram: memory::<8, 11> ( clk: clk, rst: rst, membus: wrambus );
 
@@ -30,9 +35,21 @@ module top #(
         rst       : rst       ,
         cpubus    : cpubus    ,
         cpu_ppubus: cpu_ppubus,
+        ctrlbus   : ctrlbus   ,
         prombus   : prombus   ,
         wrambus   : wrambus   ,
     );
+
+    inst controller_inst: controller (
+        clk             : clk             ,
+        rst             : rst             ,
+        sel             : ctrl_sel        ,
+        controller1_btns: controller1_btns,
+        controller2_btns: controller2_btns,
+        cpubus          : ctrlbus         ,
+    );
+
+    assign ctrl_sel = cpubus.addr == 16'h4016 || cpubus.addr == 16'h4017;
 
     inst ppu_inst: ppu (
         clk     : clk       ,
@@ -44,6 +61,7 @@ module top #(
         pixel_r : pixel_r   ,
         pixel_g : pixel_g   ,
         pixel_b : pixel_b   ,
+        nmi     : nmi       ,
     );
 
     inst ubus_ppu: bus_ppu ( clk: clk, rst: rst, ppubus: ppubus, crombus: crombus, vrambus: vrambus );
