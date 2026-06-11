@@ -104,7 +104,7 @@ module cpu (
         mode     : addr_mode_t    ,
         len      : logic      <16>,
     }
-    const DECODE_TABLE: decode_entry_t [125] = '{
+    const DECODE_TABLE: decode_entry_t [129] = '{
         decode_entry_t'{opcode: 8'h00, inst_kind: inst_t::BRK, mode: addr_mode_t::IMPLIED, len: 2,},
         decode_entry_t'{opcode: 8'h40, inst_kind: inst_t::RTI, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h48, inst_kind: inst_t::PHA, mode: addr_mode_t::IMPLIED, len: 1,},
@@ -157,6 +157,10 @@ module cpu (
         decode_entry_t'{opcode: 8'hA1, inst_kind: inst_t::LDA, mode: addr_mode_t::INDX, len: 2,},
         decode_entry_t'{opcode: 8'hB1, inst_kind: inst_t::LDA, mode: addr_mode_t::INDY, len: 2,},
         decode_entry_t'{opcode: 8'hA2, inst_kind: inst_t::LDX, mode: addr_mode_t::IMM, len: 2,},
+        decode_entry_t'{opcode: 8'hA6, inst_kind: inst_t::LDX, mode: addr_mode_t::ZP, len: 2,},
+        decode_entry_t'{opcode: 8'hB6, inst_kind: inst_t::LDX, mode: addr_mode_t::ZPY, len: 2,},
+        decode_entry_t'{opcode: 8'hAE, inst_kind: inst_t::LDX, mode: addr_mode_t::ABS, len: 3,},
+        decode_entry_t'{opcode: 8'hBE, inst_kind: inst_t::LDX, mode: addr_mode_t::ABSY, len: 3,},
         decode_entry_t'{opcode: 8'hA0, inst_kind: inst_t::LDY, mode: addr_mode_t::IMM, len: 2,},
         decode_entry_t'{opcode: 8'hE0, inst_kind: inst_t::CPX, mode: addr_mode_t::IMM, len: 2,},
         decode_entry_t'{opcode: 8'hC0, inst_kind: inst_t::CPY, mode: addr_mode_t::IMM, len: 2,},
@@ -698,6 +702,8 @@ module cpu (
                                     if (decode_entry.inst_kind == inst_t::BIT
                                         || (decode_entry.inst_kind == inst_t::LDA && decode_entry.mode
                                             != addr_mode_t::IMM)
+                                        || (decode_entry.inst_kind == inst_t::LDX && decode_entry.mode
+                                            != addr_mode_t::IMM)
                                         || (decode_entry.inst_kind == inst_t::CPY && decode_entry.mode
                                             != addr_mode_t::IMM)
                                         || (decode_entry.inst_kind == inst_t::CMP && decode_entry.mode
@@ -745,11 +751,11 @@ module cpu (
                             if (mem_ready) {
                                 mem_ready = 0;
                                 if (decoded_inst == inst_t::LDA || decoded_inst == inst_t::BIT || decoded_inst
-                                    == inst_t::CPY || decoded_inst == inst_t::CMP || decoded_inst == inst_t::INC
-                                    || decoded_inst == inst_t::ASL || decoded_inst == inst_t::LSR || decoded_inst
-                                    == inst_t::ROL || decoded_inst == inst_t::ADC || decoded_inst == inst_t::SBC
-                                    || decoded_inst == inst_t::ORA || decoded_inst == inst_t::AND || decoded_inst
-                                    == inst_t::EOR) {
+                                    == inst_t::LDX || decoded_inst == inst_t::CPY || decoded_inst == inst_t::CMP
+                                    || decoded_inst == inst_t::INC || decoded_inst == inst_t::ASL || decoded_inst
+                                    == inst_t::LSR || decoded_inst == inst_t::ROL || decoded_inst == inst_t::ADC
+                                    || decoded_inst == inst_t::SBC || decoded_inst == inst_t::ORA || decoded_inst
+                                    == inst_t::AND || decoded_inst == inst_t::EOR) {
                                     state = cpu_state_t::OP2;
                                 } else {
                                     state = cpu_state_t::EXEC;
@@ -802,6 +808,14 @@ module cpu (
                         }
                         addr_mode_t::ZPX: {
                             cpubus.addr = {8'h00, cpubus.rdata + reg_x};
+                            mem_ready   = 1;
+                            if (mem_ready) {
+                                mem_ready = 0;
+                                state     = cpu_state_t::EXEC;
+                            }
+                        }
+                        addr_mode_t::ZPY: {
+                            cpubus.addr = {8'h00, cpubus.rdata + reg_y};
                             mem_ready   = 1;
                             if (mem_ready) {
                                 mem_ready = 0;
@@ -1056,7 +1070,7 @@ module cpu (
                             state    = cpu_state_t::FETCH;
                         }
                         inst_t::LDX: {
-                            $display("[EXECUTE] PC=%04h LDX_IMM", reg_pc);
+                            $display("[EXECUTE] PC=%04h OPCODE=LDX", reg_pc);
                             reg_x    = cpubus.rdata;
                             reg_p[1] = (cpubus.rdata == 0);
                             reg_p[7] = cpubus.rdata[7];
