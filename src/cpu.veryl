@@ -29,6 +29,7 @@ module cpu (
         RTI,
         PHA,
         PLA,
+        PHP,
         PLP,
         SEI,
         SEC,
@@ -39,6 +40,7 @@ module cpu (
         CLV,
         NOP,
         TXS,
+        TSX,
         TAX,
         TXA,
         TAY,
@@ -100,11 +102,12 @@ module cpu (
         mode     : addr_mode_t    ,
         len      : logic      <16>,
     }
-    const DECODE_TABLE: decode_entry_t [112] = '{
+    const DECODE_TABLE: decode_entry_t [114] = '{
         decode_entry_t'{opcode: 8'h00, inst_kind: inst_t::BRK, mode: addr_mode_t::IMPLIED, len: 2,},
         decode_entry_t'{opcode: 8'h40, inst_kind: inst_t::RTI, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h48, inst_kind: inst_t::PHA, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h68, inst_kind: inst_t::PLA, mode: addr_mode_t::IMPLIED, len: 1,},
+        decode_entry_t'{opcode: 8'h08, inst_kind: inst_t::PHP, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h28, inst_kind: inst_t::PLP, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h78, inst_kind: inst_t::SEI, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h38, inst_kind: inst_t::SEC, mode: addr_mode_t::IMPLIED, len: 1,},
@@ -115,6 +118,7 @@ module cpu (
         decode_entry_t'{opcode: 8'hB8, inst_kind: inst_t::CLV, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'hEA, inst_kind: inst_t::NOP, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h9A, inst_kind: inst_t::TXS, mode: addr_mode_t::IMPLIED, len: 1,},
+        decode_entry_t'{opcode: 8'hBA, inst_kind: inst_t::TSX, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'hAA, inst_kind: inst_t::TAX, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h8A, inst_kind: inst_t::TXA, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'hA8, inst_kind: inst_t::TAY, mode: addr_mode_t::IMPLIED, len: 1,},
@@ -461,6 +465,16 @@ module cpu (
                                         state        = cpu_state_t::FETCH;
                                     }
 
+                                    inst_t::PHP: {
+                                        $display    ("[DECODE] PC=%04h OPCODE=PHP", reg_pc);
+                                        cpubus.addr  = {8'h01, reg_sp};
+                                        cpubus.wdata = reg_p | 8'h30;
+                                        cpubus.wen   = 1'b1;
+                                        reg_sp       = reg_sp - 1;
+                                        reg_pc       = reg_pc + decode_entry.len;
+                                        state        = cpu_state_t::FETCH;
+                                    }
+
                                     // IRQフラグ無効
                                     // NMIはIフラグに関係なく受け付ける
                                     inst_t::SEI: {
@@ -524,6 +538,15 @@ module cpu (
                                         // TXSはフラグ更新しない
                                         state  = cpu_state_t::FETCH;
                                         reg_pc = reg_pc + decode_entry.len;
+                                    }
+
+                                    inst_t::TSX: {
+                                        $display("[DECODE] PC=%04h OPCODE=TSX", reg_pc);
+                                        reg_x    = reg_sp;
+                                        reg_p[1] = (reg_sp == 0);
+                                        reg_p[7] = reg_sp[7];
+                                        state    = cpu_state_t::FETCH;
+                                        reg_pc   = reg_pc + decode_entry.len;
                                     }
 
                                     inst_t::TAX: {
