@@ -82,6 +82,7 @@ module cpu (
         ABS,
         ABSX,
         ABSY,
+        IND,
         INDX,
         INDY,
         REL,
@@ -94,7 +95,7 @@ module cpu (
         mode     : addr_mode_t    ,
         len      : logic      <16>,
     }
-    const DECODE_TABLE: decode_entry_t [99] = '{
+    const DECODE_TABLE: decode_entry_t [100] = '{
         decode_entry_t'{opcode: 8'h00, inst_kind: inst_t::BRK, mode: addr_mode_t::IMPLIED, len: 2,},
         decode_entry_t'{opcode: 8'h40, inst_kind: inst_t::RTI, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h48, inst_kind: inst_t::PHA, mode: addr_mode_t::IMPLIED, len: 1,},
@@ -192,6 +193,7 @@ module cpu (
         decode_entry_t'{opcode: 8'h50, inst_kind: inst_t::BVC, mode: addr_mode_t::REL, len: 2,},
         decode_entry_t'{opcode: 8'h70, inst_kind: inst_t::BVS, mode: addr_mode_t::REL, len: 2,},
         decode_entry_t'{opcode: 8'h4C, inst_kind: inst_t::JMP, mode: addr_mode_t::ABS, len: 3,},
+        decode_entry_t'{opcode: 8'h6C, inst_kind: inst_t::JMP, mode: addr_mode_t::IND, len: 3,},
         decode_entry_t'{opcode: 8'h20, inst_kind: inst_t::JSR, mode: addr_mode_t::ABS, len: 3,},
         decode_entry_t'{opcode: 8'h60, inst_kind: inst_t::RTS, mode: addr_mode_t::IMPLIED, len: 1,},
     };
@@ -207,6 +209,8 @@ module cpu (
         OP2,
         OP3,
         OP4,
+        JMP_IND_LO,
+        JMP_IND_HI,
         EXEC,
         RMW_WRITE,
         BRK_PUSH_LO,
@@ -248,6 +252,8 @@ module cpu (
             cpu_state_t::OP2               : return "OP2";
             cpu_state_t::OP3               : return "OP3";
             cpu_state_t::OP4               : return "OP4";
+            cpu_state_t::JMP_IND_LO        : return "JMP_IL";
+            cpu_state_t::JMP_IND_HI        : return "JMP_IH";
             cpu_state_t::EXEC              : return "EXEC";
             cpu_state_t::RMW_WRITE         : return "RMW_WR";
             cpu_state_t::BRK_PUSH_LO       : return "BRK_LO";
@@ -629,7 +635,7 @@ module cpu (
                                 }
                             }
 
-                            addr_mode_t::ABS, addr_mode_t::ABSX, addr_mode_t::ABSY: {
+                            addr_mode_t::ABS, addr_mode_t::ABSX, addr_mode_t::ABSY, addr_mode_t::IND: {
                                 cpubus.addr = reg_pc + 1;
                                 mem_ready   = 1;
                                 if (mem_ready) {
@@ -672,6 +678,15 @@ module cpu (
                             }
                         }
                         addr_mode_t::ABSY: {
+                            op1         = cpubus.rdata;
+                            cpubus.addr = reg_pc + 2;
+                            mem_ready   = 1;
+                            if (mem_ready) {
+                                mem_ready = 0;
+                                state     = cpu_state_t::OP2;
+                            }
+                        }
+                        addr_mode_t::IND: {
                             op1         = cpubus.rdata;
                             cpubus.addr = reg_pc + 2;
                             mem_ready   = 1;
@@ -745,6 +760,15 @@ module cpu (
                                 state     = cpu_state_t::EXEC;
                             }
                         }
+                        addr_mode_t::IND: {
+                            return_addr = {cpubus.rdata, op1};
+                            cpubus.addr = {cpubus.rdata, op1};
+                            mem_ready   = 1;
+                            if (mem_ready) {
+                                mem_ready = 0;
+                                state     = cpu_state_t::JMP_IND_LO;
+                            }
+                        }
                         default: {
                             state = cpu_state_t::FETCH;
                         }
@@ -790,6 +814,23 @@ module cpu (
                             state = cpu_state_t::FETCH;
                         }
                     }
+                }
+
+                cpu_state_t::JMP_IND_LO: {
+                    op1 = cpubus.rdata;
+                    // 6502のJMP ($xxFF)バグ: high byteは次ページではなく同じページの$xx00から読む
+                    cpubus.addr = {return_addr[15:8], return_addr[7:0] + 8'd1};
+                    mem_ready   = 1;
+                    if (mem_ready) {
+                        mem_ready = 0;
+                        state     = cpu_state_t::JMP_IND_HI;
+                    }
+                }
+
+                cpu_state_t::JMP_IND_HI: {
+                    $display("[EXECUTE] PC=%04h OPCODE=JMP_IND", reg_pc);
+                    reg_pc   = {cpubus.rdata, op1};
+                    state    = cpu_state_t::FETCH;
                 }
 
                 cpu_state_t::EXEC: {
