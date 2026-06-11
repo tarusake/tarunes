@@ -54,6 +54,7 @@ module cpu (
         CPX,
         CMP,
         ADC,
+        ORA,
         AND,
         EOR,
         STA,
@@ -96,7 +97,7 @@ module cpu (
         mode     : addr_mode_t    ,
         len      : logic      <16>,
     }
-    const DECODE_TABLE: decode_entry_t [101] = '{
+    const DECODE_TABLE: decode_entry_t [109] = '{
         decode_entry_t'{opcode: 8'h00, inst_kind: inst_t::BRK, mode: addr_mode_t::IMPLIED, len: 2,},
         decode_entry_t'{opcode: 8'h40, inst_kind: inst_t::RTI, mode: addr_mode_t::IMPLIED, len: 1,},
         decode_entry_t'{opcode: 8'h48, inst_kind: inst_t::PHA, mode: addr_mode_t::IMPLIED, len: 1,},
@@ -162,6 +163,14 @@ module cpu (
         decode_entry_t'{opcode: 8'h79, inst_kind: inst_t::ADC, mode: addr_mode_t::ABSY, len: 3,},
         decode_entry_t'{opcode: 8'h61, inst_kind: inst_t::ADC, mode: addr_mode_t::INDX, len: 2,},
         decode_entry_t'{opcode: 8'h71, inst_kind: inst_t::ADC, mode: addr_mode_t::INDY, len: 2,},
+        decode_entry_t'{opcode: 8'h09, inst_kind: inst_t::ORA, mode: addr_mode_t::IMM, len: 2,},
+        decode_entry_t'{opcode: 8'h05, inst_kind: inst_t::ORA, mode: addr_mode_t::ZP, len: 2,},
+        decode_entry_t'{opcode: 8'h15, inst_kind: inst_t::ORA, mode: addr_mode_t::ZPX, len: 2,},
+        decode_entry_t'{opcode: 8'h0D, inst_kind: inst_t::ORA, mode: addr_mode_t::ABS, len: 3,},
+        decode_entry_t'{opcode: 8'h1D, inst_kind: inst_t::ORA, mode: addr_mode_t::ABSX, len: 3,},
+        decode_entry_t'{opcode: 8'h19, inst_kind: inst_t::ORA, mode: addr_mode_t::ABSY, len: 3,},
+        decode_entry_t'{opcode: 8'h01, inst_kind: inst_t::ORA, mode: addr_mode_t::INDX, len: 2,},
+        decode_entry_t'{opcode: 8'h11, inst_kind: inst_t::ORA, mode: addr_mode_t::INDY, len: 2,},
         decode_entry_t'{opcode: 8'h29, inst_kind: inst_t::AND, mode: addr_mode_t::IMM, len: 2,},
         decode_entry_t'{opcode: 8'h25, inst_kind: inst_t::AND, mode: addr_mode_t::ZP, len: 2,},
         decode_entry_t'{opcode: 8'h35, inst_kind: inst_t::AND, mode: addr_mode_t::ZPX, len: 2,},
@@ -632,6 +641,8 @@ module cpu (
                                         == inst_t::LSR || decode_entry.inst_kind == inst_t::ROL
                                         || (decode_entry.inst_kind == inst_t::ADC && decode_entry.mode
                                             != addr_mode_t::IMM)
+                                        || (decode_entry.inst_kind == inst_t::ORA && decode_entry.mode
+                                            != addr_mode_t::IMM)
                                         || (decode_entry.inst_kind == inst_t::AND && decode_entry.mode
                                             != addr_mode_t::IMM)
                                         || (decode_entry.inst_kind == inst_t::EOR && decode_entry.mode
@@ -669,7 +680,8 @@ module cpu (
                                 if (decoded_inst == inst_t::LDA || decoded_inst == inst_t::BIT || decoded_inst
                                     == inst_t::CMP || decoded_inst == inst_t::INC || decoded_inst == inst_t::ASL
                                     || decoded_inst == inst_t::LSR || decoded_inst == inst_t::ROL || decoded_inst
-                                    == inst_t::ADC || decoded_inst == inst_t::AND || decoded_inst == inst_t::EOR) {
+                                    == inst_t::ADC || decoded_inst == inst_t::ORA || decoded_inst == inst_t::AND
+                                    || decoded_inst == inst_t::EOR) {
                                     state = cpu_state_t::OP2;
                                 } else {
                                     state = cpu_state_t::EXEC;
@@ -1018,6 +1030,15 @@ module cpu (
                             reg_p[0] = sum[8];
                             reg_p[1] = (result == 0);
                             reg_p[6] = ((old_a ^ result) & (cpubus.rdata ^ result) & 8'h80) != 0;
+                            reg_p[7] = result[7];
+                            reg_pc   = reg_pc + inst_len;
+                            state    = cpu_state_t::FETCH;
+                        }
+                        inst_t::ORA: {
+                            $display("[EXECUTE] PC=%04h OPCODE=ORA", reg_pc);
+                            let result  : logic<8> = reg_a | cpubus.rdata;
+                            reg_a    = result;
+                            reg_p[1] = (result == 0);
                             reg_p[7] = result[7];
                             reg_pc   = reg_pc + inst_len;
                             state    = cpu_state_t::FETCH;
