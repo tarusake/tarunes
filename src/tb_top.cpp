@@ -415,6 +415,29 @@ private:
     }
 };
 
+bool saveFrameBmp(const char* path, void* pixels, int width, int height, int pitch) {
+    SDL_Surface* surface = SDL_CreateRGBSurfaceWithFormatFrom(
+        pixels,
+        width,
+        height,
+        32,
+        pitch,
+        SDL_PIXELFORMAT_ARGB8888);
+    if (surface == nullptr) {
+        std::fprintf(stderr, "SDL_CreateRGBSurfaceWithFormatFrom Error: %s\n", SDL_GetError());
+        return false;
+    }
+
+    const int result = SDL_SaveBMP(surface, path);
+    SDL_FreeSurface(surface);
+    if (result != 0) {
+        std::fprintf(stderr, "SDL_SaveBMP Error: %s\n", SDL_GetError());
+        return false;
+    }
+
+    return true;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -474,7 +497,9 @@ int main(int argc, char** argv) {
 
     // ピクセルバッファ (ARGB8888)
     uint32_t pixel_buffer[SCREEN_HEIGHT][SCREEN_WIDTH];
+    uint32_t last_frame_buffer[SCREEN_HEIGHT][SCREEN_WIDTH];
     memset(pixel_buffer, 0, sizeof(pixel_buffer));
+    memset(last_frame_buffer, 0, sizeof(last_frame_buffer));
 
     dut->clk = 0;
     dut->rst = 0;
@@ -485,6 +510,7 @@ int main(int argc, char** argv) {
     int frame_count = 0;
     int prev_scanline = 0;
     bool running = true;
+    bool has_completed_frame = false;
     uint8_t controller1_btns = 0;
     uint64_t cpu_cycle = 0;
     CpuTracer cpu_tracer;
@@ -559,6 +585,8 @@ int main(int argc, char** argv) {
         if (prev_scanline == 261 && scanline == 0) {
             frame_count++;
             printf("Frame %d completed\n", frame_count);
+            memcpy(last_frame_buffer, pixel_buffer, sizeof(last_frame_buffer));
+            has_completed_frame = true;
 
             // ピクセルバッファをテクスチャにコピーして表示
             SDL_UpdateTexture(texture, NULL, pixel_buffer, SCREEN_WIDTH * sizeof(uint32_t));
@@ -570,6 +598,14 @@ int main(int argc, char** argv) {
     }
 
     printf("Simulation finished after %d frames\n", frame_count);
+    if (saveFrameBmp(
+            "last_frame.bmp",
+            has_completed_frame ? static_cast<void*>(last_frame_buffer) : static_cast<void*>(pixel_buffer),
+            SCREEN_WIDTH,
+            SCREEN_HEIGHT,
+            SCREEN_WIDTH * sizeof(uint32_t))) {
+        printf("Saved last frame to last_frame.bmp\n");
+    }
 
     // クリーンアップ
     SDL_DestroyTexture(texture);
