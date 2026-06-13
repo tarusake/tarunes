@@ -55,7 +55,6 @@ module ppu (
                     }
 
                     7: {
-                        $display("[PPU WRITE] addr=%h data=%02h", reg_v, cpubus.wdata);
                         // Palette RAM
                         if (reg_v[15:8] == 8'h3F) {
                             palette_ram[reg_v[4:0]] = cpubus.wdata;
