@@ -3,6 +3,7 @@ module bus_cpu (
     rst       : input   reset                  ,
     cpubus    : modport bus_if::<8, 16>::slave ,
     cpu_ppubus: modport bus_if::<8, 3>::master ,
+    apubus    : modport bus_if::<8, 5>::master ,
     ctrlbus   : modport bus_if::<8, 1>::master ,
     wrambus   : modport bus_if::<8, 11>::master,
     prombus   : modport bus_if::<8, 15>::master,
@@ -12,16 +13,19 @@ module bus_cpu (
     var sel_prom: logic;
     var sel_wram: logic;
     var sel_ctrl: logic;
+    var sel_apu : logic;
 
     // Addr sel
     assign sel_wram = cpubus.addr <: 16'h2000;
     assign sel_ppu  = cpubus.addr >= 16'h2000 && cpubus.addr <= 16'h2007;
-    assign sel_ctrl = cpubus.addr == 16'h4016 || cpubus.addr == 16'h4017;
+    assign sel_ctrl = cpubus.addr == 16'h4016 || (cpubus.addr == 16'h4017 && !cpubus.wen);
+    assign sel_apu  = (cpubus.addr >= 16'h4000 && cpubus.addr <= 16'h4015) || (cpubus.addr == 16'h4017 && cpubus.wen);
     assign sel_prom = cpubus.addr >= 16'h8000;
 
     // address assign
     assign prombus.addr    = if sel_prom ? cpubus.addr : 'x;
     assign cpu_ppubus.addr = if sel_ppu ? cpubus.addr : 'x;
+    assign apubus.addr     = if sel_apu ? cpubus.addr[4:0] : 'x;
     assign ctrlbus.addr    = cpubus.addr[0];
     assign wrambus.addr    = if sel_wram ? cpubus.addr : 'x;
 
@@ -30,6 +34,8 @@ module bus_cpu (
     assign wrambus.wen      = if sel_wram ? cpubus.wen : 'x;
     assign cpu_ppubus.wdata = if sel_ppu ? cpubus.wdata : 'x;
     assign cpu_ppubus.wen   = if sel_ppu ? cpubus.wen : 'x;
+    assign apubus.wdata     = cpubus.wdata;
+    assign apubus.wen       = sel_apu && cpubus.wen;
     assign ctrlbus.wdata    = cpubus.wdata;
     assign ctrlbus.wen      = sel_ctrl && cpubus.wen;
 
@@ -42,6 +48,7 @@ module bus_cpu (
     var sel_ppu_d : logic;
     var sel_wram_d: logic;
     var sel_ctrl_d: logic;
+    var sel_apu_d : logic;
 
     always_ff {
         if_reset {
@@ -49,11 +56,13 @@ module bus_cpu (
             sel_ppu_d  = 0;
             sel_wram_d = 0;
             sel_ctrl_d = 0;
+            sel_apu_d  = 0;
         } else {
             sel_prom_d = sel_prom;
             sel_ppu_d  = sel_ppu;
             sel_wram_d = sel_wram;
             sel_ctrl_d = sel_ctrl;
+            sel_apu_d  = sel_apu;
         }
     }
 
@@ -64,6 +73,8 @@ module bus_cpu (
             cpubus.rdata = cpu_ppubus.rdata;
         } else if (sel_ctrl_d) {
             cpubus.rdata = ctrlbus.rdata;
+        } else if (sel_apu_d) {
+            cpubus.rdata = apubus.rdata;
         } else if (sel_wram_d) {
             cpubus.rdata = wrambus.rdata;
         } else {
