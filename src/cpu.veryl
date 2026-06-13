@@ -411,7 +411,6 @@ module cpu (
                 // PCを読み込む、データが返ってきたらDECODEステートへ
                 cpu_state_t::FETCH: {
                     if (nmi_pending) {
-                        $display        ("[INTERRUPT] PC=%04h NMI", reg_pc);
                         nmi_pending      = 0;
                         mem_ready        = 0;
                         return_addr      = reg_pc;
@@ -439,14 +438,11 @@ module cpu (
                     addr_mode    = decode_entry.mode;
                     inst_len     = decode_entry.len;
 
-                    if (decode_entry.inst_kind == inst_t::INVALID) {
-                        $display("[DECODE] Unknown Opcode : PC=%04h OPCODE=%02h", reg_pc, decode_entry.opcode);
-                    } else {
+                    if (decode_entry.inst_kind == inst_t::INVALID) {} else {
                         case (decode_entry.mode) {
                             addr_mode_t::IMPLIED: {
                                 case (decode_entry.inst_kind) {
                                     inst_t::BRK: {
-                                        $display        ("[DECODE] PC=%04h OPCODE=BRK", reg_pc);
                                         let brk_return_addr : logic<16> = reg_pc + decode_entry.len;
                                         return_addr      = brk_return_addr;
                                         interrupt_vector = 16'hFFFE;
@@ -460,7 +456,6 @@ module cpu (
                                     }
 
                                     inst_t::PLP: {
-                                        $display   ("[DECODE] PC=%04h OPCODE=PLP", reg_pc);
                                         cpubus.addr = {8'h01, reg_sp + 8'd1};
                                         cpubus.wen  = 1'b0;
                                         mem_ready   = 1'b1;
@@ -471,7 +466,6 @@ module cpu (
                                     }
 
                                     inst_t::PLA: {
-                                        $display   ("[DECODE] PC=%04h OPCODE=PLA", reg_pc);
                                         cpubus.addr = {8'h01, reg_sp + 8'd1};
                                         cpubus.wen  = 1'b0;
                                         mem_ready   = 1'b1;
@@ -482,7 +476,6 @@ module cpu (
                                     }
 
                                     inst_t::RTI: {
-                                        $display   ("[DECODE] PC=%04h OPCODE=RTI", reg_pc);
                                         cpubus.addr = {8'h01, reg_sp + 8'd1};
                                         cpubus.wen  = 1'b0;
                                         mem_ready   = 1'b1;
@@ -493,7 +486,6 @@ module cpu (
                                     }
 
                                     inst_t::PHA: {
-                                        $display    ("[DECODE] PC=%04h OPCODE=PHA", reg_pc);
                                         cpubus.addr  = {8'h01, reg_sp};
                                         cpubus.wdata = reg_a;
                                         cpubus.wen   = 1'b1;
@@ -503,7 +495,6 @@ module cpu (
                                     }
 
                                     inst_t::PHP: {
-                                        $display    ("[DECODE] PC=%04h OPCODE=PHP", reg_pc);
                                         cpubus.addr  = {8'h01, reg_sp};
                                         cpubus.wdata = reg_p | 8'h30;
                                         cpubus.wen   = 1'b1;
@@ -515,70 +506,60 @@ module cpu (
                                     // IRQフラグ無効
                                     // NMIはIフラグに関係なく受け付ける
                                     inst_t::SEI: {
-                                        $display("[DECODE] PC=%04h OPCODE=SEI", reg_pc);
                                         reg_p[2] = 1'b1;
                                         state    = cpu_state_t::FETCH;
                                         reg_pc   = reg_pc + decode_entry.len;
                                     }
 
                                     inst_t::SEC: {
-                                        $display("[DECODE] PC=%04h OPCODE=SEC", reg_pc);
                                         reg_p[0] = 1'b1;
                                         state    = cpu_state_t::FETCH;
                                         reg_pc   = reg_pc + decode_entry.len;
                                     }
 
                                     inst_t::CLI: {
-                                        $display("[DECODE] PC=%04h OPCODE=CLI", reg_pc);
                                         reg_p[2] = 1'b0;
                                         state    = cpu_state_t::FETCH;
                                         reg_pc   = reg_pc + decode_entry.len;
                                     }
 
                                     inst_t::CLD: {
-                                        $display("[DECODE] PC=%04h OPCODE=CLD", reg_pc);
                                         reg_p[3] = 1'b0;
                                         state    = cpu_state_t::FETCH;
                                         reg_pc   = reg_pc + decode_entry.len;
                                     }
 
                                     inst_t::CLC: {
-                                        $display("[DECODE] PC=%04h OPCODE=CLC", reg_pc);
                                         reg_p[0] = 1'b0;
                                         state    = cpu_state_t::FETCH;
                                         reg_pc   = reg_pc + decode_entry.len;
                                     }
 
                                     inst_t::SED: {
-                                        $display("[DECODE] PC=%04h OPCODE=SED", reg_pc);
                                         reg_p[3] = 1'b1;
                                         state    = cpu_state_t::FETCH;
                                         reg_pc   = reg_pc + decode_entry.len;
                                     }
 
                                     inst_t::CLV: {
-                                        $display("[DECODE] PC=%04h OPCODE=CLV", reg_pc);
                                         reg_p[6] = 1'b0;
                                         state    = cpu_state_t::FETCH;
                                         reg_pc   = reg_pc + decode_entry.len;
                                     }
 
                                     inst_t::NOP: {
-                                        $display("[DECODE] PC=%04h OPCODE=NOP", reg_pc);
-                                        state    = cpu_state_t::FETCH;
-                                        reg_pc   = reg_pc + decode_entry.len;
+                                        state  = cpu_state_t::FETCH;
+                                        reg_pc = reg_pc + decode_entry.len;
                                     }
 
                                     inst_t::TXS: {
-                                        $display("[DECODE] PC=%04h OPCODE=TXS", reg_pc);
-                                        reg_sp   = reg_x;
+                                        reg_sp = reg_x;
                                         // TXSはフラグ更新しない
                                         state  = cpu_state_t::FETCH;
                                         reg_pc = reg_pc + decode_entry.len;
                                     }
 
                                     inst_t::TSX: {
-                                        $display("[DECODE] PC=%04h OPCODE=TSX", reg_pc);
                                         reg_x    = reg_sp;
                                         reg_p[1] = (reg_sp == 0);
                                         reg_p[7] = reg_sp[7];
@@ -587,7 +568,6 @@ module cpu (
                                     }
 
                                     inst_t::TAX: {
-                                        $display("[DECODE] PC=%04h OPCODE=TAX", reg_pc);
                                         reg_x    = reg_a;
                                         reg_p[1] = (reg_a == 0);
                                         reg_p[7] = reg_a[7];
@@ -596,7 +576,6 @@ module cpu (
                                     }
 
                                     inst_t::TXA: {
-                                        $display("[DECODE] PC=%04h OPCODE=TXA", reg_pc);
                                         reg_a    = reg_x;
                                         reg_p[1] = (reg_x == 0);
                                         reg_p[7] = reg_x[7];
@@ -605,7 +584,6 @@ module cpu (
                                     }
 
                                     inst_t::TAY: {
-                                        $display("[DECODE] PC=%04h OPCODE=TAY", reg_pc);
                                         reg_y    = reg_a;
                                         reg_p[1] = (reg_a == 0);
                                         reg_p[7] = reg_a[7];
@@ -614,7 +592,6 @@ module cpu (
                                     }
 
                                     inst_t::TYA: {
-                                        $display("[DECODE] PC=%04h OPCODE=TYA", reg_pc);
                                         reg_a    = reg_y;
                                         reg_p[1] = (reg_y == 0);
                                         reg_p[7] = reg_y[7];
@@ -623,7 +600,6 @@ module cpu (
                                     }
 
                                     inst_t::ASL: {
-                                        $display("[DECODE] PC=%04h OPCODE=ASL_A", reg_pc);
                                         let result  : logic<8> = reg_a << 1;
                                         reg_p[0] = reg_a[7];
                                         reg_p[1] = (result == 0);
@@ -634,7 +610,6 @@ module cpu (
                                     }
 
                                     inst_t::LSR: {
-                                        $display("[DECODE] PC=%04h OPCODE=LSR_A", reg_pc);
                                         let result  : logic<8> = reg_a >> 1;
                                         reg_p[0] = reg_a[0];
                                         reg_p[1] = (result == 0);
@@ -645,7 +620,6 @@ module cpu (
                                     }
 
                                     inst_t::ROL: {
-                                        $display("[DECODE] PC=%04h OPCODE=ROL_A", reg_pc);
                                         let result  : logic<8> = {reg_a[6:0], reg_p[0]};
                                         reg_p[0] = reg_a[7];
                                         reg_p[1] = (result == 0);
@@ -656,7 +630,6 @@ module cpu (
                                     }
 
                                     inst_t::ROR: {
-                                        $display("[DECODE] PC=%04h OPCODE=ROR_A", reg_pc);
                                         let result  : logic<8> = {reg_p[0], reg_a[7:1]};
                                         reg_p[0] = reg_a[0];
                                         reg_p[1] = (result == 0);
@@ -667,7 +640,6 @@ module cpu (
                                     }
 
                                     inst_t::INX: {
-                                        $display("[DECODE] PC=%04h OPCODE=INX", reg_pc);
                                         let result  : logic<8> = reg_x + 1;
                                         reg_x    = result;
                                         reg_p[1] = (result == 0);
@@ -677,7 +649,6 @@ module cpu (
                                     }
 
                                     inst_t::INY: {
-                                        $display("[DECODE] PC=%04h OPCODE=INY", reg_pc);
                                         let result  : logic<8> = reg_y + 1;
                                         reg_y    = result;
                                         reg_p[1] = (result == 0);
@@ -687,7 +658,6 @@ module cpu (
                                     }
 
                                     inst_t::DEX: {
-                                        $display("[DECODE] PC=%04h OPCODE=DEX", reg_pc);
                                         let result  : logic<8> = reg_x - 1;
                                         reg_x    = result;
                                         reg_p[1] = (result == 0);
@@ -697,7 +667,6 @@ module cpu (
                                     }
 
                                     inst_t::DEY: {
-                                        $display("[DECODE] PC=%04h OPCODE=DEY", reg_pc);
                                         let result  : logic<8> = reg_y - 1;
                                         reg_y    = result;
                                         reg_p[1] = (result == 0);
@@ -707,7 +676,6 @@ module cpu (
                                     }
 
                                     inst_t::RTS: {
-                                        $display   ("[DECODE] PC=%04h OPCODE=RTS", reg_pc);
                                         cpubus.addr = {8'h01, reg_sp + 8'd1};
                                         cpubus.wen  = 1'b0;
                                         mem_ready   = 1'b1;
@@ -976,16 +944,14 @@ module cpu (
                 }
 
                 cpu_state_t::JMP_IND_HI: {
-                    $display("[EXECUTE] PC=%04h OPCODE=JMP_IND", reg_pc);
-                    reg_pc   = {cpubus.rdata, op1};
-                    state    = cpu_state_t::FETCH;
+                    reg_pc = {cpubus.rdata, op1};
+                    state  = cpu_state_t::FETCH;
                 }
 
                 cpu_state_t::EXEC: {
                     case (decoded_inst) {
                         // C=0なら分岐する
                         inst_t::BCC: {
-                            $display("[EXECUTE] PC=%04h OPCODE=BCC", reg_pc);
                             if (reg_p[0] == 0) {
                                 reg_pc = $signed(reg_pc) + 2 + {cpubus.rdata[7] repeat 8, cpubus.rdata};
                             } else {
@@ -996,7 +962,6 @@ module cpu (
 
                         // C=1なら分岐する
                         inst_t::BCS: {
-                            $display("[EXECUTE] PC=%04h OPCODE=BCS", reg_pc);
                             if (reg_p[0] == 1) {
                                 reg_pc = $signed(reg_pc) + 2 + {cpubus.rdata[7] repeat 8, cpubus.rdata};
                             } else {
@@ -1007,7 +972,6 @@ module cpu (
 
                         // Z=0なら分岐する
                         inst_t::BNE: {
-                            $display("[EXECUTE] PC=%04h OPCODE=BNE", reg_pc);
                             if (reg_p[1] == 0) {
                                 reg_pc = $signed(reg_pc) + 2 + {cpubus.rdata[7] repeat 8, cpubus.rdata};
                             } else {
@@ -1018,7 +982,6 @@ module cpu (
 
                         // Z=1なら分岐する
                         inst_t::BEQ: {
-                            $display("[EXECUTE] PC=%04h OPCODE=BEQ", reg_pc);
                             if (reg_p[1] == 1) {
                                 reg_pc = $signed(reg_pc) + 2 + {cpubus.rdata[7] repeat 8, cpubus.rdata};
                             } else {
@@ -1029,7 +992,6 @@ module cpu (
 
                         // N=0なら分岐する
                         inst_t::BPL: {
-                            $display("[EXECUTE] PC=%04h OPCODE=BPL", reg_pc);
                             if (reg_p[7] == 0) {
                                 reg_pc = $signed(reg_pc) + 2 + {cpubus.rdata[7] repeat 8, cpubus.rdata};
                             } else {
@@ -1040,7 +1002,6 @@ module cpu (
 
                         // N=1なら分岐する
                         inst_t::BMI: {
-                            $display("[EXECUTE] PC=%04h OPCODE=BMI", reg_pc);
                             if (reg_p[7] == 1) {
                                 reg_pc = $signed(reg_pc) + 2 + {cpubus.rdata[7] repeat 8, cpubus.rdata};
                             } else {
@@ -1051,7 +1012,6 @@ module cpu (
 
                         // V=0なら分岐する
                         inst_t::BVC: {
-                            $display("[EXECUTE] PC=%04h OPCODE=BVC", reg_pc);
                             if (reg_p[6] == 0) {
                                 reg_pc = $signed(reg_pc) + 2 + {cpubus.rdata[7] repeat 8, cpubus.rdata};
                             } else {
@@ -1062,7 +1022,6 @@ module cpu (
 
                         // V=1なら分岐する
                         inst_t::BVS: {
-                            $display("[EXECUTE] PC=%04h OPCODE=BVS", reg_pc);
                             if (reg_p[6] == 1) {
                                 reg_pc = $signed(reg_pc) + 2 + {cpubus.rdata[7] repeat 8, cpubus.rdata};
                             } else {
@@ -1072,13 +1031,11 @@ module cpu (
                         }
 
                         inst_t::JMP: {
-                            $display("[EXECUTE] PC=%04h OPCODE=JMP_ABS", reg_pc);
-                            reg_pc   = {cpubus.rdata, op1};
-                            state    = cpu_state_t::FETCH;
+                            reg_pc = {cpubus.rdata, op1};
+                            state  = cpu_state_t::FETCH;
                         }
 
                         inst_t::JSR: {
-                            $display       ("[EXECUTE] PC=%04h OPCODE=JSR_ABS", reg_pc);
                             let jsr_return_addr: logic<16> = reg_pc + 16'd2;
                             return_addr     = jsr_return_addr;
                             op2             = cpubus.rdata;
@@ -1090,15 +1047,13 @@ module cpu (
                         }
 
                         inst_t::PLP: {
-                            $display("[EXECUTE] PC=%04h OPCODE=PLP", reg_pc);
-                            reg_p    = cpubus.rdata | 8'h20;
-                            reg_sp   = reg_sp + 1;
-                            reg_pc   = reg_pc + inst_len;
-                            state    = cpu_state_t::FETCH;
+                            reg_p  = cpubus.rdata | 8'h20;
+                            reg_sp = reg_sp + 1;
+                            reg_pc = reg_pc + inst_len;
+                            state  = cpu_state_t::FETCH;
                         }
 
                         inst_t::PLA: {
-                            $display("[EXECUTE] PC=%04h OPCODE=PLA", reg_pc);
                             reg_a    = cpubus.rdata;
                             reg_p[1] = (cpubus.rdata == 0);
                             reg_p[7] = cpubus.rdata[7];
@@ -1108,7 +1063,6 @@ module cpu (
                         }
 
                         inst_t::LDA: {
-                            $display("[EXECUTE] PC=%04h LDA_XXX", reg_pc);
                             reg_a    = cpubus.rdata;
                             reg_p[1] = (cpubus.rdata == 0);
                             reg_p[7] = cpubus.rdata[7];
@@ -1116,7 +1070,6 @@ module cpu (
                             state    = cpu_state_t::FETCH;
                         }
                         inst_t::LDX: {
-                            $display("[EXECUTE] PC=%04h OPCODE=LDX", reg_pc);
                             reg_x    = cpubus.rdata;
                             reg_p[1] = (cpubus.rdata == 0);
                             reg_p[7] = cpubus.rdata[7];
@@ -1124,7 +1077,6 @@ module cpu (
                             state    = cpu_state_t::FETCH;
                         }
                         inst_t::LDY: {
-                            $display("[EXECUTE] PC=%04h LDY_IMM", reg_pc);
                             reg_y    = cpubus.rdata;
                             reg_p[1] = (cpubus.rdata == 0);
                             reg_p[7] = cpubus.rdata[7];
@@ -1132,7 +1084,6 @@ module cpu (
                             state    = cpu_state_t::FETCH;
                         }
                         inst_t::CPX: {
-                            $display("[EXECUTE] PC=%04h CPX_IMM", reg_pc);
                             let result  : logic<8> = reg_x - cpubus.rdata;
                             reg_p[0] = (reg_x >= cpubus.rdata);
                             reg_p[1] = (result == 0);
@@ -1141,7 +1092,6 @@ module cpu (
                             state    = cpu_state_t::FETCH;
                         }
                         inst_t::CPY: {
-                            $display("[EXECUTE] PC=%04h OPCODE=CPY", reg_pc);
                             let result  : logic<8> = reg_y - cpubus.rdata;
                             reg_p[0] = (reg_y >= cpubus.rdata);
                             reg_p[1] = (result == 0);
@@ -1150,7 +1100,6 @@ module cpu (
                             state    = cpu_state_t::FETCH;
                         }
                         inst_t::CMP: {
-                            $display("[EXECUTE] PC=%04h OPCODE=CMP", reg_pc);
                             let result  : logic<8> = reg_a - cpubus.rdata;
                             reg_p[0] = (reg_a >= cpubus.rdata);
                             reg_p[1] = (result == 0);
@@ -1159,7 +1108,6 @@ module cpu (
                             state    = cpu_state_t::FETCH;
                         }
                         inst_t::ADC: {
-                            $display("[EXECUTE] PC=%04h OPCODE=ADC", reg_pc);
                             let old_a   : logic<8> = reg_a;
                             let sum     : logic<9> = {1'b0, old_a} + {1'b0, cpubus.rdata} + {8'h00, reg_p[0]};
                             let result  : logic<8> = sum[7:0];
@@ -1172,7 +1120,6 @@ module cpu (
                             state    = cpu_state_t::FETCH;
                         }
                         inst_t::SBC: {
-                            $display("[EXECUTE] PC=%04h OPCODE=SBC", reg_pc);
                             let old_a   : logic<8> = reg_a;
                             let inv_mem : logic<8> = ~cpubus.rdata;
                             let sum     : logic<9> = {1'b0, old_a} + {1'b0, inv_mem} + {8'h00, reg_p[0]};
@@ -1186,7 +1133,6 @@ module cpu (
                             state    = cpu_state_t::FETCH;
                         }
                         inst_t::ORA: {
-                            $display("[EXECUTE] PC=%04h OPCODE=ORA", reg_pc);
                             let result  : logic<8> = reg_a | cpubus.rdata;
                             reg_a    = result;
                             reg_p[1] = (result == 0);
@@ -1195,7 +1141,6 @@ module cpu (
                             state    = cpu_state_t::FETCH;
                         }
                         inst_t::INC: {
-                            $display    ("[EXECUTE] PC=%04h OPCODE=INC", reg_pc);
                             let result      : logic<8> = cpubus.rdata + 1;
                             cpubus.wdata = cpubus.rdata;
                             cpubus.wen   = 1'b1;
@@ -1205,7 +1150,6 @@ module cpu (
                             state        = cpu_state_t::RMW_WRITE;
                         }
                         inst_t::DEC: {
-                            $display    ("[EXECUTE] PC=%04h OPCODE=DEC", reg_pc);
                             let result      : logic<8> = cpubus.rdata - 1;
                             cpubus.wdata = cpubus.rdata;
                             cpubus.wen   = 1'b1;
@@ -1215,7 +1159,6 @@ module cpu (
                             state        = cpu_state_t::RMW_WRITE;
                         }
                         inst_t::ASL: {
-                            $display    ("[EXECUTE] PC=%04h OPCODE=ASL", reg_pc);
                             let result      : logic<8> = cpubus.rdata << 1;
                             cpubus.wdata = cpubus.rdata;
                             cpubus.wen   = 1'b1;
@@ -1226,7 +1169,6 @@ module cpu (
                             state        = cpu_state_t::RMW_WRITE;
                         }
                         inst_t::LSR: {
-                            $display    ("[EXECUTE] PC=%04h OPCODE=LSR", reg_pc);
                             let result      : logic<8> = cpubus.rdata >> 1;
                             cpubus.wdata = cpubus.rdata;
                             cpubus.wen   = 1'b1;
@@ -1237,7 +1179,6 @@ module cpu (
                             state        = cpu_state_t::RMW_WRITE;
                         }
                         inst_t::ROL: {
-                            $display    ("[EXECUTE] PC=%04h OPCODE=ROL", reg_pc);
                             let result      : logic<8> = {cpubus.rdata[6:0], reg_p[0]};
                             cpubus.wdata = cpubus.rdata;
                             cpubus.wen   = 1'b1;
@@ -1248,7 +1189,6 @@ module cpu (
                             state        = cpu_state_t::RMW_WRITE;
                         }
                         inst_t::ROR: {
-                            $display    ("[EXECUTE] PC=%04h OPCODE=ROR", reg_pc);
                             let result      : logic<8> = {reg_p[0], cpubus.rdata[7:1]};
                             cpubus.wdata = cpubus.rdata;
                             cpubus.wen   = 1'b1;
@@ -1259,7 +1199,6 @@ module cpu (
                             state        = cpu_state_t::RMW_WRITE;
                         }
                         inst_t::AND: {
-                            $display("[EXECUTE] PC=%04h OPCODE=AND", reg_pc);
                             let result  : logic<8> = reg_a & cpubus.rdata;
                             reg_a    = result;
                             reg_p[1] = (result == 0);
@@ -1268,7 +1207,6 @@ module cpu (
                             state    = cpu_state_t::FETCH;
                         }
                         inst_t::EOR: {
-                            $display("[EXECUTE] PC=%04h OPCODE=EOR", reg_pc);
                             let result  : logic<8> = reg_a ^ cpubus.rdata;
                             reg_a    = result;
                             reg_p[1] = (result == 0);
@@ -1277,7 +1215,6 @@ module cpu (
                             state    = cpu_state_t::FETCH;
                         }
                         inst_t::BIT: {
-                            $display("[EXECUTE] PC=%04h OPCODE=BIT", reg_pc);
                             let result  : logic<8> = reg_a & cpubus.rdata;
                             reg_p[1] = (result == 0);
                             reg_p[6] = cpubus.rdata[6];
@@ -1286,7 +1223,6 @@ module cpu (
                             state    = cpu_state_t::FETCH;
                         }
                         inst_t::STA: {
-                            $display    ("[EXECUTE] PC=%04h OPCODE=STA", reg_pc);
                             cpubus.addr  = if addr_mode == addr_mode_t::ZP ?
                                 {8'h00, cpubus.rdata}
                             : if addr_mode == addr_mode_t::ZPX ?
@@ -1304,7 +1240,6 @@ module cpu (
                             state        = cpu_state_t::FETCH;
                         }
                         inst_t::STX: {
-                            $display    ("[EXECUTE] PC=%04h OPCODE=STX", reg_pc);
                             cpubus.addr  = if addr_mode == addr_mode_t::ZP ?
                                 {8'h00, cpubus.rdata}
                             : if addr_mode == addr_mode_t::ZPY ?
@@ -1318,7 +1253,6 @@ module cpu (
                             state        = cpu_state_t::FETCH;
                         }
                         inst_t::STY: {
-                            $display    ("[EXECUTE] PC=%04h OPCODE=STY", reg_pc);
                             cpubus.addr  = if addr_mode == addr_mode_t::ZP ?
                                 {8'h00, cpubus.rdata}
                             : if addr_mode == addr_mode_t::ZPX ?
