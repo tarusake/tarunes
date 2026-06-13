@@ -2,6 +2,8 @@
 #include "verilated.h"
 #include "verilated_vcd_c.h"
 #include <SDL2/SDL.h>
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -74,7 +76,7 @@ int main(int argc, char** argv) {
     if (audio_dev == 0) {
         fprintf(stderr, "SDL_OpenAudioDevice Error: %s\n", SDL_GetError());
     } else {
-        SDL_PauseAudioDevice(audio_dev, 0);
+        SDL_PauseAudioDevice(audio_dev, 1);
     }
 
     // ピクセルバッファ (ARGB8888)
@@ -94,8 +96,19 @@ int main(int argc, char** argv) {
     const double CPU_CLOCK_HZ = 1789773.0;
     const double AUDIO_SAMPLE_RATE = static_cast<double>(obtained.freq ? obtained.freq : desired.freq);
     double audio_phase = 0.0;
+    double audio_stretch = 8.0;
+    double audio_stretch_phase = 0.0;
+    uint64_t audio_cycle_count = 0;
+    uint64_t speed_sample_cycle = 0;
+    uint64_t speed_sample_ticks = SDL_GetPerformanceCounter();
+    const uint64_t PERF_FREQ = SDL_GetPerformanceFrequency();
+    const uint64_t SPEED_SAMPLE_CYCLES = 8192;
+    const uint32_t AUDIO_QUEUE_LOW_BYTES = 8192;
+    const uint32_t AUDIO_QUEUE_HIGH_BYTES = 32768;
+    const uint32_t AUDIO_QUEUE_MAX_BYTES = 65536;
+    bool audio_paused = true;
     std::vector<int16_t> audio_buffer;
-    audio_buffer.reserve(1024);
+    audio_buffer.reserve(4096);
 
     // メインループ
     while (running) {
@@ -144,16 +157,44 @@ int main(int argc, char** argv) {
         }
 
         if (audio_dev != 0) {
+            audio_cycle_count++;
+            if (audio_cycle_count - speed_sample_cycle >= SPEED_SAMPLE_CYCLES) {
+                uint64_t now = SDL_GetPerformanceCounter();
+                double wall_seconds = static_cast<double>(now - speed_sample_ticks) / static_cast<double>(PERF_FREQ);
+                double emu_seconds = static_cast<double>(audio_cycle_count - speed_sample_cycle) / CPU_CLOCK_HZ;
+                if (wall_seconds > 0.0) {
+                    audio_stretch = std::clamp(wall_seconds / emu_seconds, 1.0, 64.0);
+                }
+                speed_sample_cycle = audio_cycle_count;
+                speed_sample_ticks = now;
+            }
+
             audio_phase += AUDIO_SAMPLE_RATE;
             while (audio_phase >= CPU_CLOCK_HZ) {
                 audio_phase -= CPU_CLOCK_HZ;
                 int centered = static_cast<int>(dut->audio_sample) - 128;
-                audio_buffer.push_back(static_cast<int16_t>(centered * 192));
+                int16_t sample = static_cast<int16_t>(centered * 192);
+                audio_stretch_phase += audio_stretch;
+                int repeat_count = static_cast<int>(audio_stretch_phase);
+                audio_stretch_phase -= repeat_count;
+                for (int i = 0; i < repeat_count; i++) {
+                    audio_buffer.push_back(sample);
+                }
             }
 
-            if (audio_buffer.size() >= 512 && SDL_GetQueuedAudioSize(audio_dev) < 4096) {
+            uint32_t queued_bytes = SDL_GetQueuedAudioSize(audio_dev);
+            if (audio_buffer.size() >= 512 && queued_bytes < AUDIO_QUEUE_MAX_BYTES) {
                 SDL_QueueAudio(audio_dev, audio_buffer.data(), audio_buffer.size() * sizeof(int16_t));
                 audio_buffer.clear();
+                queued_bytes = SDL_GetQueuedAudioSize(audio_dev);
+            }
+
+            if (audio_paused && queued_bytes >= AUDIO_QUEUE_HIGH_BYTES) {
+                SDL_PauseAudioDevice(audio_dev, 0);
+                audio_paused = false;
+            } else if (!audio_paused && queued_bytes <= AUDIO_QUEUE_LOW_BYTES) {
+                SDL_PauseAudioDevice(audio_dev, 1);
+                audio_paused = true;
             }
         }
 
