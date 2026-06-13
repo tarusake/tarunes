@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <vector>
 
 int main(int argc, char** argv) {
     Verilated::commandArgs(argc, argv);
@@ -17,7 +19,7 @@ int main(int argc, char** argv) {
     tfp->open("wave.vcd");
 
     // SDL2の初期化
-    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0) {
         fprintf(stderr, "SDL_Init Error: %s\n", SDL_GetError());
         exit(1);
     }
@@ -61,6 +63,20 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
+    SDL_AudioSpec desired{};
+    desired.freq = 44100;
+    desired.format = AUDIO_S16SYS;
+    desired.channels = 1;
+    desired.samples = 1024;
+
+    SDL_AudioSpec obtained{};
+    SDL_AudioDeviceID audio_dev = SDL_OpenAudioDevice(NULL, 0, &desired, &obtained, 0);
+    if (audio_dev == 0) {
+        fprintf(stderr, "SDL_OpenAudioDevice Error: %s\n", SDL_GetError());
+    } else {
+        SDL_PauseAudioDevice(audio_dev, 0);
+    }
+
     // ピクセルバッファ (ARGB8888)
     uint32_t pixel_buffer[SCREEN_HEIGHT][SCREEN_WIDTH];
     memset(pixel_buffer, 0, sizeof(pixel_buffer));
@@ -75,6 +91,11 @@ int main(int argc, char** argv) {
     int prev_scanline = 0;
     bool running = true;
     uint8_t controller1_btns = 0;
+    const double CPU_CLOCK_HZ = 1789773.0;
+    const double AUDIO_SAMPLE_RATE = static_cast<double>(obtained.freq ? obtained.freq : desired.freq);
+    double audio_phase = 0.0;
+    std::vector<int16_t> audio_buffer;
+    audio_buffer.reserve(1024);
 
     // メインループ
     while (running) {
@@ -122,6 +143,20 @@ int main(int argc, char** argv) {
             Verilated::timeInc(1);
         }
 
+        if (audio_dev != 0) {
+            audio_phase += AUDIO_SAMPLE_RATE;
+            while (audio_phase >= CPU_CLOCK_HZ) {
+                audio_phase -= CPU_CLOCK_HZ;
+                int centered = static_cast<int>(dut->audio_sample) - 128;
+                audio_buffer.push_back(static_cast<int16_t>(centered * 192));
+            }
+
+            if (audio_buffer.size() >= 512 && SDL_GetQueuedAudioSize(audio_dev) < 4096) {
+                SDL_QueueAudio(audio_dev, audio_buffer.data(), audio_buffer.size() * sizeof(int16_t));
+                audio_buffer.clear();
+            }
+        }
+
         // 有効ピクセル領域かチェック
         int scanline = dut->scanline;
         int cycle = dut->cycle;
@@ -158,6 +193,9 @@ int main(int argc, char** argv) {
     SDL_DestroyTexture(texture);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
+    if (audio_dev != 0) {
+        SDL_CloseAudioDevice(audio_dev);
+    }
     SDL_Quit();
 
     tfp->close();

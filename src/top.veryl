@@ -11,9 +11,11 @@ module top #(
     pixel_r         : output logic<8>,
     pixel_g         : output logic<8>,
     pixel_b         : output logic<8>,
+    audio_sample    : output logic<8>,
 ) {
     inst cpubus    : bus_if::<8, 16>;
     inst cpu_ppubus: bus_if::<8, 3>;
+    inst apubus    : bus_if::<8, 5>;
     inst ctrlbus   : bus_if::<8, 1>;
     inst wrambus   : bus_if::<8, 11>;
     inst prombus   : bus_if::<8, 15>;
@@ -35,10 +37,13 @@ module top #(
         rst       : rst       ,
         cpubus    : cpubus    ,
         cpu_ppubus: cpu_ppubus,
+        apubus    : apubus    ,
         ctrlbus   : ctrlbus   ,
         prombus   : prombus   ,
         wrambus   : wrambus   ,
     );
+
+    inst apu_inst: apu ( clk: clk, rst: rst, cpubus: apubus, audio_sample: audio_sample );
 
     inst controller_inst: controller (
         clk             : clk             ,
@@ -49,7 +54,7 @@ module top #(
         cpubus          : ctrlbus         ,
     );
 
-    assign ctrl_sel = cpubus.addr == 16'h4016 || cpubus.addr == 16'h4017;
+    assign ctrl_sel = cpubus.addr == 16'h4016 || (cpubus.addr == 16'h4017 && !cpubus.wen);
 
     inst ppu_inst: ppu (
         clk     : clk       ,

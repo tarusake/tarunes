@@ -1,0 +1,94 @@
+module apu (
+    clk         : input   clock                   ,
+    rst         : input   reset                   ,
+    cpubus      : modport bus_if::<8, 5>::slave   ,
+    audio_sample: output  logic                <8>,
+) {
+    // 1,789,773 Hz / 240 Hz - 1
+    const LENGTH_CLOCK_LAST: logic<13> = 13'd7456;
+
+    const LENGTH_TABLE: logic<8> [32] = '{
+        8'd10, 8'd254, 8'd20, 8'd2, 8'd40, 8'd4, 8'd80, 8'd6, 8'd160, 8'd8, 8'd60, 8'd10, 8'd14, 8'd12, 8'd26, 8'd14,
+        8'd12, 8'd16, 8'd24, 8'd18, 8'd48, 8'd20, 8'd96, 8'd22, 8'd192, 8'd24, 8'd72, 8'd26, 8'd16, 8'd28, 8'd32, 8'd30
+    };
+
+    const DUTY_TABLE: logic<8> [4] = '{8'b01000000, 8'b01100000, 8'b01111000, 8'b10011111};
+
+    var reg_ctrl      : logic<8> ;
+    var timer_period  : logic<11>;
+    var timer_counter : logic<11>;
+    var sequencer     : logic<3> ;
+    var length_counter: logic<8> ;
+    var enabled       : logic    ;
+    var length_clock  : logic<13>;
+    var sample_delta  : logic<8> ;
+
+    always_ff {
+        if_reset {
+            cpubus.rdata   = 0;
+            reg_ctrl       = 0;
+            timer_period   = 0;
+            timer_counter  = 0;
+            sequencer      = 0;
+            length_counter = 0;
+            enabled        = 0;
+            length_clock   = 0;
+        } else {
+            cpubus.rdata = if length_counter != 0 ? 8'h02 : 8'h00;
+
+            if (length_clock == LENGTH_CLOCK_LAST) {
+                length_clock = 0;
+                if (!reg_ctrl[5] && length_counter != 0) {
+                    length_counter = length_counter - 1;
+                }
+            } else {
+                length_clock = length_clock + 1;
+            }
+
+            if (timer_counter == 0) {
+                timer_counter = timer_period;
+                sequencer     = sequencer + 1;
+            } else {
+                timer_counter = timer_counter - 1;
+            }
+
+            if (cpubus.wen) {
+                case (cpubus.addr) {
+                    5'h04: {
+                        reg_ctrl = cpubus.wdata;
+                    }
+                    5'h05: {}
+                    5'h06: {
+                        timer_period[7:0] = cpubus.wdata;
+                    }
+                    5'h07: {
+                        timer_period[10:8] = cpubus.wdata[2:0];
+                        sequencer          = 0;
+                        timer_counter      = {cpubus.wdata[2:0], timer_period[7:0]};
+                        if (enabled) {
+                            length_counter = LENGTH_TABLE[cpubus.wdata[7:3]];
+                        }
+                    }
+                    5'h15: {
+                        enabled = cpubus.wdata[1];
+                        if (!cpubus.wdata[1]) {
+                            length_counter = 0;
+                        }
+                    }
+                    default: {}
+                }
+            }
+        }
+    }
+
+    var duty_bit: logic   ;
+    var volume  : logic<4>;
+    assign duty_bit     = DUTY_TABLE[reg_ctrl[7:6]][sequencer];
+    assign volume       = if reg_ctrl[4] ? reg_ctrl[3:0] : reg_ctrl[3:0];
+    assign sample_delta = {1'b0, volume, 3'b000};
+    assign audio_sample = if enabled && length_counter != 0 ?
+        (if duty_bit ? 8'h80 + sample_delta : 8'h80 - sample_delta)
+    :
+        8'h80
+    ;
+}
