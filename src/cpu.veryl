@@ -1004,16 +1004,18 @@ module cpu (
                     }
 
                     cpu_state_t::EXEC: {
-                        let exec_data: logic<8> = if addr_mode == addr_mode_t::IMM || addr_mode == addr_mode_t::REL ?
+                        let exec_data    : logic       <8>  = if addr_mode == addr_mode_t::IMM || addr_mode
+                            == addr_mode_t::REL ?
                             op1
                         :
                             cpubus.rdata
                         ;
+                        let branch_offset: signed logic<16> = {exec_data[7] repeat 8, exec_data};
                         case (decoded_inst) {
                             // C=0なら分岐する
                             inst_t::BCC: {
                                 if (reg_p[0] == 0) {
-                                    reg_pc = $signed(reg_pc) + 2 + {exec_data[7] repeat 8, exec_data};
+                                    reg_pc = reg_pc + 16'd2 + branch_offset;
                                 } else {
                                     reg_pc = reg_pc + 2;
                                 }
@@ -1023,7 +1025,7 @@ module cpu (
                             // C=1なら分岐する
                             inst_t::BCS: {
                                 if (reg_p[0] == 1) {
-                                    reg_pc = $signed(reg_pc) + 2 + {exec_data[7] repeat 8, exec_data};
+                                    reg_pc = reg_pc + 16'd2 + branch_offset;
                                 } else {
                                     reg_pc = reg_pc + 2;
                                 }
@@ -1033,7 +1035,7 @@ module cpu (
                             // Z=0なら分岐する
                             inst_t::BNE: {
                                 if (reg_p[1] == 0) {
-                                    reg_pc = $signed(reg_pc) + 2 + {exec_data[7] repeat 8, exec_data};
+                                    reg_pc = reg_pc + 16'd2 + branch_offset;
                                 } else {
                                     reg_pc = reg_pc + 2;
                                 }
@@ -1043,7 +1045,7 @@ module cpu (
                             // Z=1なら分岐する
                             inst_t::BEQ: {
                                 if (reg_p[1] == 1) {
-                                    reg_pc = $signed(reg_pc) + 2 + {exec_data[7] repeat 8, exec_data};
+                                    reg_pc = reg_pc + 16'd2 + branch_offset;
                                 } else {
                                     reg_pc = reg_pc + 2;
                                 }
@@ -1053,7 +1055,7 @@ module cpu (
                             // N=0なら分岐する
                             inst_t::BPL: {
                                 if (reg_p[7] == 0) {
-                                    reg_pc = $signed(reg_pc) + 2 + {exec_data[7] repeat 8, exec_data};
+                                    reg_pc = reg_pc + 16'd2 + branch_offset;
                                 } else {
                                     reg_pc = reg_pc + 2;
                                 }
@@ -1063,7 +1065,7 @@ module cpu (
                             // N=1なら分岐する
                             inst_t::BMI: {
                                 if (reg_p[7] == 1) {
-                                    reg_pc = $signed(reg_pc) + 2 + {exec_data[7] repeat 8, exec_data};
+                                    reg_pc = reg_pc + 16'd2 + branch_offset;
                                 } else {
                                     reg_pc = reg_pc + 2;
                                 }
@@ -1073,7 +1075,7 @@ module cpu (
                             // V=0なら分岐する
                             inst_t::BVC: {
                                 if (reg_p[6] == 0) {
-                                    reg_pc = $signed(reg_pc) + 2 + {exec_data[7] repeat 8, exec_data};
+                                    reg_pc = reg_pc + 16'd2 + branch_offset;
                                 } else {
                                     reg_pc = reg_pc + 2;
                                 }
@@ -1083,7 +1085,7 @@ module cpu (
                             // V=1なら分岐する
                             inst_t::BVS: {
                                 if (reg_p[6] == 1) {
-                                    reg_pc = $signed(reg_pc) + 2 + {exec_data[7] repeat 8, exec_data};
+                                    reg_pc = reg_pc + 16'd2 + branch_offset;
                                 } else {
                                     reg_pc = reg_pc + 2;
                                 }
