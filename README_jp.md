@@ -42,6 +42,8 @@ tarunes/
 
 ## 必要条件
 
+シミュレーション環境は Ubuntu 24.04 LTS 以上を推奨します。
+
 - [Verilator](https://www.veripool.org/verilator/) (5.0 以上)
 - [Veryl](https://github.com/veryl-lang/veryl) (0.20.1)
 - SDL2 開発パッケージ (`sdl2-config` が使えること)
