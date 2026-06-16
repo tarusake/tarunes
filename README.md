@@ -41,6 +41,8 @@ tarunes/
 
 ## Requirements
 
+Ubuntu 24.04 LTS or later is recommended for the simulation environment.
+
 - [Verilator](https://www.veripool.org/verilator/) 5.0 or later
 - [Veryl](https://github.com/veryl-lang/veryl) 0.20.1
 - SDL2 development package (`sdl2-config`)
