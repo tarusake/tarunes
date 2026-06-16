@@ -1,130 +1,608 @@
 module apu (
     clk         : input   clock                   ,
     rst         : input   reset                   ,
+    stall       : input   logic                   ,
+    bus_stall   : input   logic                   ,
     cpubus      : modport bus_if::<8, 5>::slave   ,
     audio_sample: output  logic                <8>,
 ) {
-    // 1,789,773 Hz / 240 Hz - 1
-    const LENGTH_CLOCK_LAST: logic<13> = 13'd7456;
-    // 1,789,773 Hz / 120 Hz - 1
-    const SWEEP_CLOCK_LAST: logic<14> = 14'd14913;
+    struct pulse_ctrl_t {
+        duty               : logic<2>,
+        length_counter_halt: logic   ,
+        constant_volume    : logic   ,
+        volume             : logic<4>,
+    }
+
+    struct sweep_t {
+        enabled: logic   ,
+        period : logic<3>,
+        negate : logic   ,
+        shift  : logic<3>,
+    }
+
+    struct triangle_linear_t {
+        control: logic   ,
+        reload : logic<7>,
+    }
+
+    struct noise_ctrl_t {
+        unused             : logic<2>,
+        length_counter_halt: logic   ,
+        constant_volume    : logic   ,
+        volume             : logic<4>,
+    }
+
+    struct noise_period_t {
+        mode  : logic   ,
+        unused: logic<3>,
+        period: logic<4>,
+    }
+
+    const PULSE1_CTRL_ADDR      : logic<5> = 5'h00;
+    const PULSE1_SWEEP_ADDR     : logic<5> = 5'h01;
+    const PULSE1_TIMER_LO_ADDR  : logic<5> = 5'h02;
+    const PULSE1_TIMER_HI_ADDR  : logic<5> = 5'h03;
+    const PULSE2_CTRL_ADDR      : logic<5> = 5'h04;
+    const PULSE2_SWEEP_ADDR     : logic<5> = 5'h05;
+    const PULSE2_TIMER_LO_ADDR  : logic<5> = 5'h06;
+    const PULSE2_TIMER_HI_ADDR  : logic<5> = 5'h07;
+    const TRIANGLE_LINEAR_ADDR  : logic<5> = 5'h08;
+    const TRIANGLE_TIMER_LO_ADDR: logic<5> = 5'h0A;
+    const TRIANGLE_TIMER_HI_ADDR: logic<5> = 5'h0B;
+    const NOISE_CTRL_ADDR       : logic<5> = 5'h0C;
+    const NOISE_PERIOD_ADDR     : logic<5> = 5'h0E;
+    const NOISE_LENGTH_ADDR     : logic<5> = 5'h0F;
+    const STATUS_ADDR           : logic<5> = 5'h15;
+    const FRAME_COUNTER_ADDR    : logic<5> = 5'h17;
+
+    const FRAME_STEP_1: logic<15> = 15'd3728;
+    const FRAME_STEP_2: logic<15> = 15'd7456;
+    const FRAME_STEP_3: logic<15> = 15'd11185;
+    const FRAME_STEP_4: logic<15> = 15'd14914;
+    const FRAME_STEP_5: logic<15> = 15'd18640;
 
     const LENGTH_TABLE: logic<8> [32] = '{
         8'd10, 8'd254, 8'd20, 8'd2, 8'd40, 8'd4, 8'd80, 8'd6, 8'd160, 8'd8, 8'd60, 8'd10, 8'd14, 8'd12, 8'd26, 8'd14,
         8'd12, 8'd16, 8'd24, 8'd18, 8'd48, 8'd20, 8'd96, 8'd22, 8'd192, 8'd24, 8'd72, 8'd26, 8'd16, 8'd28, 8'd32, 8'd30
     };
 
-    const DUTY_TABLE: logic<8> [4] = '{8'b01000000, 8'b01100000, 8'b01111000, 8'b10011111};
+    const DUTY_TABLE        : logic<8>  [4]   = '{8'b01000000, 8'b01100000, 8'b01111000, 8'b10011111};
+    const TRIANGLE_TABLE    : logic<4>  [32]  = '{
+        4'd15, 4'd14, 4'd13, 4'd12, 4'd11, 4'd10, 4'd9, 4'd8, 4'd7, 4'd6, 4'd5, 4'd4, 4'd3, 4'd2, 4'd1, 4'd0, 4'd0,
+        4'd1, 4'd2, 4'd3, 4'd4, 4'd5, 4'd6, 4'd7, 4'd8, 4'd9, 4'd10, 4'd11, 4'd12, 4'd13, 4'd14, 4'd15
+    };
+    const NOISE_PERIOD_TABLE: logic<12> [16]  = '{
+        12'd4, 12'd8, 12'd16, 12'd32, 12'd64, 12'd96, 12'd128, 12'd160, 12'd202, 12'd254, 12'd380, 12'd508, 12'd762,
+        12'd1016, 12'd2034, 12'd4068
+    };
+    const PULSE_MIX_TABLE   : logic<7>  [31]  = '{
+        7'd0, 7'd2, 7'd5, 7'd7, 7'd9, 7'd11, 7'd13, 7'd15, 7'd17, 7'd19, 7'd21, 7'd23, 7'd25, 7'd26, 7'd28, 7'd30,
+        7'd32, 7'd33, 7'd35, 7'd36, 7'd38, 7'd39, 7'd41, 7'd42, 7'd44, 7'd45, 7'd46, 7'd48, 7'd49, 7'd50, 7'd52
+    };
+    const TND_MIX_TABLE     : logic<7>  [256] = '{
+        7'd0, 7'd3, 7'd5, 7'd8, 7'd10, 7'd13, 7'd15, 7'd17, 7'd20, 7'd22, 7'd24, 7'd26, 7'd29, 7'd31, 7'd33, 7'd35,
+        7'd4, 7'd6, 7'd9, 7'd11, 7'd14, 7'd16, 7'd18, 7'd21, 7'd23, 7'd25, 7'd27, 7'd30, 7'd32, 7'd34, 7'd36, 7'd38,
+        7'd8, 7'd10, 7'd12, 7'd15, 7'd17, 7'd20, 7'd22, 7'd24, 7'd26, 7'd28, 7'd31, 7'd33, 7'd35, 7'd37, 7'd39, 7'd41,
+        7'd11, 7'd14, 7'd16, 7'd18, 7'd21, 7'd23, 7'd25, 7'd27, 7'd30, 7'd32, 7'd34, 7'd36, 7'd38, 7'd40, 7'd42, 7'd44,
+        7'd15, 7'd17, 7'd19, 7'd22, 7'd24, 7'd26, 7'd28, 7'd31, 7'd33, 7'd35, 7'd37, 7'd39, 7'd41, 7'd43, 7'd45, 7'd47,
+        7'd18, 7'd21, 7'd23, 7'd25, 7'd27, 7'd29, 7'd32, 7'd34, 7'd36, 7'd38, 7'd40, 7'd42, 7'd44, 7'd46, 7'd48, 7'd50,
+        7'd22, 7'd24, 7'd26, 7'd28, 7'd31, 7'd33, 7'd35, 7'd37, 7'd39, 7'd41, 7'd43, 7'd45, 7'd47, 7'd49, 7'd50, 7'd52,
+        7'd25, 7'd27, 7'd29, 7'd32, 7'd34, 7'd36, 7'd38, 7'd40, 7'd42, 7'd44, 7'd46, 7'd48, 7'd49, 7'd51, 7'd53, 7'd55,
+        7'd28, 7'd30, 7'd33, 7'd35, 7'd37, 7'd39, 7'd41, 7'd43, 7'd45, 7'd47, 7'd49, 7'd50, 7'd52, 7'd54, 7'd56, 7'd58,
+        7'd32, 7'd34, 7'd36, 7'd38, 7'd40, 7'd42, 7'd44, 7'd46, 7'd48, 7'd49, 7'd51, 7'd53, 7'd55, 7'd57, 7'd58, 7'd60,
+        7'd35, 7'd37, 7'd39, 7'd41, 7'd43, 7'd45, 7'd47, 7'd48, 7'd50, 7'd52, 7'd54, 7'd56, 7'd58, 7'd59, 7'd61, 7'd63,
+        7'd38, 7'd40, 7'd42, 7'd44, 7'd46, 7'd47, 7'd49, 7'd51, 7'd53, 7'd55, 7'd57, 7'd58, 7'd60, 7'd62, 7'd64, 7'd65,
+        7'd41, 7'd43, 7'd45, 7'd47, 7'd48, 7'd50, 7'd52, 7'd54, 7'd56, 7'd57, 7'd59, 7'd61, 7'd63, 7'd64, 7'd66, 7'd68,
+        7'd44, 7'd46, 7'd47, 7'd49, 7'd51, 7'd53, 7'd55, 7'd57, 7'd58, 7'd60, 7'd62, 7'd63, 7'd65, 7'd67, 7'd68, 7'd70,
+        7'd46, 7'd48, 7'd50, 7'd52, 7'd54, 7'd56, 7'd57, 7'd59, 7'd61, 7'd63, 7'd64, 7'd66, 7'd68, 7'd69, 7'd71, 7'd72,
+        7'd49, 7'd51, 7'd53, 7'd55, 7'd57, 7'd58, 7'd60, 7'd62, 7'd63, 7'd65, 7'd67, 7'd68, 7'd70, 7'd72, 7'd73, 7'd75
+    };
 
-    var reg_ctrl      : logic<8> ;
-    var reg_sweep     : logic<8> ;
-    var timer_period  : logic<11>;
-    var timer_counter : logic<11>;
-    var sequencer     : logic<3> ;
-    var length_counter: logic<8> ;
-    var enabled       : logic    ;
-    var length_clock  : logic<13>;
-    var sweep_clock   : logic<14>;
-    var sweep_divider : logic<3> ;
-    var sample_delta  : logic<8> ;
-    var duty_bit      : logic    ;
-    var volume        : logic<4> ;
-    var sweep_shift   : logic<11>;
-    var sweep_target  : logic<12>;
-    var sweep_mute    : logic    ;
+    var pulse1_reg_ctrl      : pulse_ctrl_t    ;
+    var pulse1_reg_sweep     : sweep_t         ;
+    var pulse1_timer_period  : logic       <11>;
+    var pulse1_timer_counter : logic       <11>;
+    var pulse1_sequencer     : logic       <3> ;
+    var pulse1_length_counter: logic       <8> ;
+    var pulse1_enabled       : logic           ;
+    var pulse1_sweep_divider : logic       <3> ;
+    var pulse1_level         : logic       <4> ;
+    var pulse1_duty_bit      : logic           ;
+    var pulse1_volume        : logic       <4> ;
+    var pulse1_sweep_shift   : logic       <11>;
+    var pulse1_sweep_target  : logic       <12>;
+    var pulse1_sweep_mute    : logic           ;
+    var pulse1_env_start     : logic           ;
+    var pulse1_env_divider   : logic       <4> ;
+    var pulse1_env_decay     : logic       <4> ;
 
-    assign duty_bit     = DUTY_TABLE[reg_ctrl[7:6]][sequencer];
-    assign volume       = if reg_ctrl[4] ? reg_ctrl[3:0] : reg_ctrl[3:0];
-    assign sweep_shift  = timer_period >> reg_sweep[2:0];
-    assign sweep_target = if reg_sweep[3] ?
-        {1'b0, timer_period} - {1'b0, sweep_shift}
+    var pulse2_reg_ctrl      : pulse_ctrl_t    ;
+    var pulse2_reg_sweep     : sweep_t         ;
+    var pulse2_timer_period  : logic       <11>;
+    var pulse2_timer_counter : logic       <11>;
+    var pulse2_sequencer     : logic       <3> ;
+    var pulse2_length_counter: logic       <8> ;
+    var pulse2_enabled       : logic           ;
+    var pulse2_sweep_divider : logic       <3> ;
+    var pulse2_level         : logic       <4> ;
+    var pulse2_duty_bit      : logic           ;
+    var pulse2_volume        : logic       <4> ;
+    var pulse2_sweep_shift   : logic       <11>;
+    var pulse2_sweep_target  : logic       <12>;
+    var pulse2_sweep_mute    : logic           ;
+    var pulse2_env_start     : logic           ;
+    var pulse2_env_divider   : logic       <4> ;
+    var pulse2_env_decay     : logic       <4> ;
+
+    var triangle_reg_linear        : triangle_linear_t    ;
+    var triangle_timer_period      : logic            <11>;
+    var triangle_timer_counter     : logic            <11>;
+    var triangle_sequencer         : logic            <5> ;
+    var triangle_length_counter    : logic            <8> ;
+    var triangle_linear_counter    : logic            <7> ;
+    var triangle_linear_reload_flag: logic                ;
+    var triangle_enabled           : logic                ;
+    var triangle_level             : logic            <4> ;
+
+    var noise_reg_ctrl      : noise_ctrl_t      ;
+    var noise_reg_period    : noise_period_t    ;
+    var noise_timer_period  : logic         <12>;
+    var noise_timer_counter : logic         <12>;
+    var noise_length_counter: logic         <8> ;
+    var noise_shift         : logic         <15>;
+    var noise_enabled       : logic             ;
+    var noise_feedback      : logic             ;
+    var noise_volume        : logic         <4> ;
+    var noise_level         : logic         <4> ;
+    var noise_env_start     : logic             ;
+    var noise_env_divider   : logic         <4> ;
+    var noise_env_decay     : logic         <4> ;
+
+    var apu_tick_div           : logic<2> ;
+    var apu_half_tick          : logic    ;
+    var frame_counter_mode     : logic    ;
+    var frame_counter          : logic<15>;
+    var frame_counter_write    : logic    ;
+    var frame_counter_mode_next: logic    ;
+    var frame_quarter_tick     : logic    ;
+    var frame_half_tick        : logic    ;
+    var frame_counter_last     : logic    ;
+    var pulse1_sweep_write     : logic    ;
+    var pulse1_timer_lo_write  : logic    ;
+    var pulse1_timer_hi_write  : logic    ;
+    var pulse1_timer_lo_wdata  : logic<8> ;
+    var pulse1_timer_hi_wdata  : logic<8> ;
+    var pulse2_sweep_write     : logic    ;
+    var pulse2_timer_lo_write  : logic    ;
+    var pulse2_timer_hi_write  : logic    ;
+    var pulse2_timer_lo_wdata  : logic<8> ;
+    var pulse2_timer_hi_wdata  : logic<8> ;
+    var triangle_timer_lo_write: logic    ;
+    var triangle_timer_hi_write: logic    ;
+    var triangle_timer_lo_wdata: logic<8> ;
+    var triangle_timer_hi_wdata: logic<8> ;
+    var noise_length_write     : logic    ;
+    var noise_length_wdata     : logic<8> ;
+    var status_write           : logic    ;
+    var status_wdata           : logic<8> ;
+    var pulse_mix_level        : logic<5> ;
+    var tnd_mix_index          : logic<8> ;
+    var audio_mix_level        : logic<8> ;
+
+    assign pulse1_duty_bit     = DUTY_TABLE[pulse1_reg_ctrl.duty][pulse1_sequencer];
+    assign pulse1_volume       = if pulse1_reg_ctrl.constant_volume ? pulse1_reg_ctrl.volume : pulse1_env_decay;
+    assign pulse1_sweep_shift  = pulse1_timer_period >> pulse1_reg_sweep.shift;
+    assign pulse1_sweep_target = if pulse1_reg_sweep.negate ?
+        {1'b0, pulse1_timer_period} - {1'b0, pulse1_sweep_shift} - 12'd1
     :
-        {1'b0, timer_period} + {1'b0, sweep_shift}
+        {1'b0, pulse1_timer_period} + {1'b0, pulse1_sweep_shift}
     ;
-    assign sweep_mute   = timer_period <: 8 || sweep_target >: 12'h7FF;
-    assign sample_delta = {1'b0, volume, 3'b000};
-    assign audio_sample = if enabled && length_counter != 0 && !sweep_mute ?
-        (if duty_bit ? 8'h80 + sample_delta : 8'h80 - sample_delta)
+    assign pulse1_sweep_mute   = pulse1_timer_period <: 8 || pulse1_sweep_target >: 12'h7FF;
+    assign pulse1_level        = if pulse1_enabled && pulse1_length_counter != 0 && !pulse1_sweep_mute
+        && pulse1_duty_bit ?
+        pulse1_volume
     :
-        8'h80
+        4'd0
     ;
+
+    assign pulse2_duty_bit     = DUTY_TABLE[pulse2_reg_ctrl.duty][pulse2_sequencer];
+    assign pulse2_volume       = if pulse2_reg_ctrl.constant_volume ? pulse2_reg_ctrl.volume : pulse2_env_decay;
+    assign pulse2_sweep_shift  = pulse2_timer_period >> pulse2_reg_sweep.shift;
+    assign pulse2_sweep_target = if pulse2_reg_sweep.negate ?
+        {1'b0, pulse2_timer_period} - {1'b0, pulse2_sweep_shift}
+    :
+        {1'b0, pulse2_timer_period} + {1'b0, pulse2_sweep_shift}
+    ;
+    assign pulse2_sweep_mute   = pulse2_timer_period <: 8 || pulse2_sweep_target >: 12'h7FF;
+    assign pulse2_level        = if pulse2_enabled && pulse2_length_counter != 0 && !pulse2_sweep_mute
+        && pulse2_duty_bit ?
+        pulse2_volume
+    :
+        4'd0
+    ;
+
+    assign triangle_level = if triangle_enabled && triangle_length_counter != 0 && triangle_linear_counter != 0
+        && triangle_timer_period >= 3 ?
+        TRIANGLE_TABLE[triangle_sequencer]
+    :
+        4'd0
+    ;
+
+    assign noise_timer_period = NOISE_PERIOD_TABLE[noise_reg_period.period];
+    assign noise_feedback     = noise_shift[0] ^ (if noise_reg_period.mode ? noise_shift[6] : noise_shift[1]);
+    assign noise_volume       = if noise_reg_ctrl.constant_volume ? noise_reg_ctrl.volume : noise_env_decay;
+    assign noise_level        = if noise_enabled && noise_length_counter != 0 && !noise_shift[0] ? noise_volume : 4'd0;
+
+    assign pulse_mix_level    = {1'b0, pulse1_level} + {1'b0, pulse2_level};
+    assign tnd_mix_index      = {triangle_level, noise_level};
+    assign audio_mix_level    = {1'b0, PULSE_MIX_TABLE[pulse_mix_level]} + {1'b0, TND_MIX_TABLE[tnd_mix_index]};
+    assign audio_sample       = 8'h80 + audio_mix_level;
+    assign frame_quarter_tick = (frame_counter_write && frame_counter_mode_next)
+        || (apu_tick_div == 2
+            && (frame_counter == FRAME_STEP_1 || frame_counter == FRAME_STEP_2 || frame_counter == FRAME_STEP_3
+                || (if frame_counter_mode ? frame_counter == FRAME_STEP_5 : frame_counter == FRAME_STEP_4)));
+    assign frame_half_tick    = (frame_counter_write && frame_counter_mode_next)
+        || (apu_tick_div == 2
+            && (frame_counter == FRAME_STEP_2
+                || (if frame_counter_mode ? frame_counter == FRAME_STEP_5 : frame_counter == FRAME_STEP_4)));
+    assign frame_counter_last = if frame_counter_mode ? frame_counter == FRAME_STEP_5 : frame_counter == FRAME_STEP_4;
 
     always_ff {
         if_reset {
-            cpubus.rdata   = 0;
-            reg_ctrl       = 0;
-            reg_sweep      = 0;
-            timer_period   = 0;
-            timer_counter  = 0;
-            sequencer      = 0;
-            length_counter = 0;
-            enabled        = 0;
-            length_clock   = 0;
-            sweep_clock    = 0;
-            sweep_divider  = 0;
-        } else {
-            cpubus.rdata = if length_counter != 0 ? 8'h02 : 8'h00;
+            cpubus.rdata            = 0;
+            pulse1_reg_ctrl         = 0;
+            pulse1_reg_sweep        = 0;
+            pulse1_enabled          = 0;
+            pulse2_reg_ctrl         = 0;
+            pulse2_reg_sweep        = 0;
+            pulse2_enabled          = 0;
+            triangle_reg_linear     = 0;
+            triangle_enabled        = 0;
+            noise_reg_ctrl          = 0;
+            noise_reg_period        = 0;
+            noise_enabled           = 0;
+            pulse1_sweep_write      = 0;
+            pulse1_timer_lo_write   = 0;
+            pulse1_timer_hi_write   = 0;
+            pulse1_timer_lo_wdata   = 0;
+            pulse1_timer_hi_wdata   = 0;
+            pulse2_sweep_write      = 0;
+            pulse2_timer_lo_write   = 0;
+            pulse2_timer_hi_write   = 0;
+            pulse2_timer_lo_wdata   = 0;
+            pulse2_timer_hi_wdata   = 0;
+            triangle_timer_lo_write = 0;
+            triangle_timer_hi_write = 0;
+            triangle_timer_lo_wdata = 0;
+            triangle_timer_hi_wdata = 0;
+            noise_length_write      = 0;
+            noise_length_wdata      = 0;
+            status_write            = 0;
+            status_wdata            = 0;
+            frame_counter_write     = 0;
+            frame_counter_mode_next = 0;
+        } else if !stall {
+            pulse1_sweep_write      = 0;
+            pulse1_timer_lo_write   = 0;
+            pulse1_timer_hi_write   = 0;
+            pulse2_sweep_write      = 0;
+            pulse2_timer_lo_write   = 0;
+            pulse2_timer_hi_write   = 0;
+            triangle_timer_lo_write = 0;
+            triangle_timer_hi_write = 0;
+            noise_length_write      = 0;
+            status_write            = 0;
+            frame_counter_write     = 0;
 
-            if (length_clock == LENGTH_CLOCK_LAST) {
-                length_clock = 0;
-                if (!reg_ctrl[5] && length_counter != 0) {
-                    length_counter = length_counter - 1;
-                }
-            } else {
-                length_clock = length_clock + 1;
+            if !bus_stall {
+                cpubus.rdata = {
+                    4'b0000, if noise_length_counter != 0 ? 1'b1 : 1'b0, if triangle_length_counter != 0 ? 1'b1 : 1'b0,
+                    if pulse2_length_counter != 0 ? 1'b1 : 1'b0, if pulse1_length_counter != 0 ? 1'b1 : 1'b0
+                };
             }
 
-            if (sweep_clock == SWEEP_CLOCK_LAST) {
-                sweep_clock = 0;
-                if (reg_sweep[7] && reg_sweep[2:0] != 0) {
-                    if (sweep_divider == 0) {
-                        sweep_divider = reg_sweep[6:4];
-                        if (!sweep_mute) {
-                            timer_period = sweep_target[10:0];
-                        }
-                    } else {
-                        sweep_divider = sweep_divider - 1;
-                    }
-                }
-            } else {
-                sweep_clock = sweep_clock + 1;
-            }
-
-            if (timer_counter == 0) {
-                timer_counter = timer_period;
-                sequencer     = sequencer + 1;
-            } else {
-                timer_counter = timer_counter - 1;
-            }
-
-            if (cpubus.wen) {
+            if (!bus_stall && cpubus.wen) {
                 case (cpubus.addr) {
-                    5'h04: {
-                        reg_ctrl = cpubus.wdata;
+                    PULSE1_CTRL_ADDR: {
+                        pulse1_reg_ctrl = cpubus.wdata;
                     }
-                    5'h05: {
-                        reg_sweep     = cpubus.wdata;
-                        sweep_divider = cpubus.wdata[6:4];
+                    PULSE1_SWEEP_ADDR: {
+                        pulse1_reg_sweep   = cpubus.wdata;
+                        pulse1_sweep_write = 1;
                     }
-                    5'h06: {
-                        timer_period[7:0] = cpubus.wdata;
+                    PULSE1_TIMER_LO_ADDR: {
+                        pulse1_timer_lo_write = 1;
+                        pulse1_timer_lo_wdata = cpubus.wdata;
                     }
-                    5'h07: {
-                        timer_period[10:8] = cpubus.wdata[2:0];
-                        sequencer          = 0;
-                        timer_counter      = {cpubus.wdata[2:0], timer_period[7:0]};
-                        if (enabled) {
-                            length_counter = LENGTH_TABLE[cpubus.wdata[7:3]];
-                        }
+                    PULSE1_TIMER_HI_ADDR: {
+                        pulse1_timer_hi_write = 1;
+                        pulse1_timer_hi_wdata = cpubus.wdata;
                     }
-                    5'h15: {
-                        enabled = cpubus.wdata[1];
-                        if (!cpubus.wdata[1]) {
-                            length_counter = 0;
-                        }
+                    PULSE2_CTRL_ADDR: {
+                        pulse2_reg_ctrl = cpubus.wdata;
+                    }
+                    PULSE2_SWEEP_ADDR: {
+                        pulse2_reg_sweep   = cpubus.wdata;
+                        pulse2_sweep_write = 1;
+                    }
+                    PULSE2_TIMER_LO_ADDR: {
+                        pulse2_timer_lo_write = 1;
+                        pulse2_timer_lo_wdata = cpubus.wdata;
+                    }
+                    PULSE2_TIMER_HI_ADDR: {
+                        pulse2_timer_hi_write = 1;
+                        pulse2_timer_hi_wdata = cpubus.wdata;
+                    }
+                    TRIANGLE_LINEAR_ADDR: {
+                        triangle_reg_linear = cpubus.wdata;
+                    }
+                    TRIANGLE_TIMER_LO_ADDR: {
+                        triangle_timer_lo_write = 1;
+                        triangle_timer_lo_wdata = cpubus.wdata;
+                    }
+                    TRIANGLE_TIMER_HI_ADDR: {
+                        triangle_timer_hi_write = 1;
+                        triangle_timer_hi_wdata = cpubus.wdata;
+                    }
+                    NOISE_CTRL_ADDR: {
+                        noise_reg_ctrl = cpubus.wdata;
+                    }
+                    NOISE_PERIOD_ADDR: {
+                        noise_reg_period = cpubus.wdata;
+                    }
+                    NOISE_LENGTH_ADDR: {
+                        noise_length_write = 1;
+                        noise_length_wdata = cpubus.wdata;
+                    }
+                    STATUS_ADDR: {
+                        pulse1_enabled   = cpubus.wdata[0];
+                        pulse2_enabled   = cpubus.wdata[1];
+                        triangle_enabled = cpubus.wdata[2];
+                        noise_enabled    = cpubus.wdata[3];
+                        status_write     = 1;
+                        status_wdata     = cpubus.wdata;
+                    }
+                    FRAME_COUNTER_ADDR: {
+                        frame_counter_write     = 1;
+                        frame_counter_mode_next = cpubus.wdata[7];
                     }
                     default: {}
                 }
+            }
+        }
+    }
+
+    always_ff {
+        if_reset {
+            pulse1_timer_period         = 0;
+            pulse1_timer_counter        = 0;
+            pulse1_sequencer            = 0;
+            pulse1_length_counter       = 0;
+            pulse1_sweep_divider        = 0;
+            pulse1_env_start            = 0;
+            pulse1_env_divider          = 0;
+            pulse1_env_decay            = 0;
+            pulse2_timer_period         = 0;
+            pulse2_timer_counter        = 0;
+            pulse2_sequencer            = 0;
+            pulse2_length_counter       = 0;
+            pulse2_sweep_divider        = 0;
+            pulse2_env_start            = 0;
+            pulse2_env_divider          = 0;
+            pulse2_env_decay            = 0;
+            triangle_timer_period       = 0;
+            triangle_timer_counter      = 0;
+            triangle_sequencer          = 0;
+            triangle_length_counter     = 0;
+            triangle_linear_counter     = 0;
+            triangle_linear_reload_flag = 0;
+            noise_timer_counter         = 0;
+            noise_length_counter        = 0;
+            noise_shift                 = 15'h0001;
+            noise_env_start             = 0;
+            noise_env_divider           = 0;
+            noise_env_decay             = 0;
+            apu_tick_div                = 0;
+            apu_half_tick               = 0;
+            frame_counter_mode          = 0;
+            frame_counter               = 0;
+        } else if !stall {
+            if (pulse1_sweep_write) {
+                pulse1_sweep_divider = pulse1_reg_sweep.period;
+            }
+            if (pulse1_timer_lo_write) {
+                pulse1_timer_period[7:0] = pulse1_timer_lo_wdata;
+            }
+            if (pulse1_timer_hi_write) {
+                pulse1_timer_period[10:8] = pulse1_timer_hi_wdata[2:0];
+                pulse1_sequencer          = 0;
+                pulse1_timer_counter      = {pulse1_timer_hi_wdata[2:0], pulse1_timer_period[7:0]};
+                pulse1_env_start          = 1;
+                if (pulse1_enabled) {
+                    pulse1_length_counter = LENGTH_TABLE[pulse1_timer_hi_wdata[7:3]];
+                }
+            }
+            if (pulse2_sweep_write) {
+                pulse2_sweep_divider = pulse2_reg_sweep.period;
+            }
+            if (pulse2_timer_lo_write) {
+                pulse2_timer_period[7:0] = pulse2_timer_lo_wdata;
+            }
+            if (pulse2_timer_hi_write) {
+                pulse2_timer_period[10:8] = pulse2_timer_hi_wdata[2:0];
+                pulse2_sequencer          = 0;
+                pulse2_timer_counter      = {pulse2_timer_hi_wdata[2:0], pulse2_timer_period[7:0]};
+                pulse2_env_start          = 1;
+                if (pulse2_enabled) {
+                    pulse2_length_counter = LENGTH_TABLE[pulse2_timer_hi_wdata[7:3]];
+                }
+            }
+            if (triangle_timer_lo_write) {
+                triangle_timer_period[7:0] = triangle_timer_lo_wdata;
+            }
+            if (triangle_timer_hi_write) {
+                triangle_timer_period[10:8] = triangle_timer_hi_wdata[2:0];
+                triangle_timer_counter      = {triangle_timer_hi_wdata[2:0], triangle_timer_period[7:0]};
+                triangle_linear_reload_flag = 1;
+                if (triangle_enabled) {
+                    triangle_length_counter = LENGTH_TABLE[triangle_timer_hi_wdata[7:3]];
+                }
+            }
+            if (noise_length_write && noise_enabled) {
+                noise_length_counter = LENGTH_TABLE[noise_length_wdata[7:3]];
+                noise_env_start      = 1;
+            }
+            if (status_write) {
+                if (!status_wdata[0]) {
+                    pulse1_length_counter = 0;
+                }
+                if (!status_wdata[1]) {
+                    pulse2_length_counter = 0;
+                }
+                if (!status_wdata[2]) {
+                    triangle_length_counter = 0;
+                }
+                if (!status_wdata[3]) {
+                    noise_length_counter = 0;
+                }
+            }
+
+            if (frame_counter_write) {
+                frame_counter_mode = frame_counter_mode_next;
+                frame_counter      = 0;
+            }
+
+            if (frame_quarter_tick) {
+                if (pulse1_env_start) {
+                    pulse1_env_start   = 0;
+                    pulse1_env_decay   = 4'hF;
+                    pulse1_env_divider = pulse1_reg_ctrl.volume;
+                } else if (pulse1_env_divider == 0) {
+                    pulse1_env_divider = pulse1_reg_ctrl.volume;
+                    if (pulse1_env_decay != 0) {
+                        pulse1_env_decay = pulse1_env_decay - 1;
+                    } else if (pulse1_reg_ctrl.length_counter_halt) {
+                        pulse1_env_decay = 4'hF;
+                    }
+                } else {
+                    pulse1_env_divider = pulse1_env_divider - 1;
+                }
+                if (pulse2_env_start) {
+                    pulse2_env_start   = 0;
+                    pulse2_env_decay   = 4'hF;
+                    pulse2_env_divider = pulse2_reg_ctrl.volume;
+                } else if (pulse2_env_divider == 0) {
+                    pulse2_env_divider = pulse2_reg_ctrl.volume;
+                    if (pulse2_env_decay != 0) {
+                        pulse2_env_decay = pulse2_env_decay - 1;
+                    } else if (pulse2_reg_ctrl.length_counter_halt) {
+                        pulse2_env_decay = 4'hF;
+                    }
+                } else {
+                    pulse2_env_divider = pulse2_env_divider - 1;
+                }
+                if (noise_env_start) {
+                    noise_env_start   = 0;
+                    noise_env_decay   = 4'hF;
+                    noise_env_divider = noise_reg_ctrl.volume;
+                } else if (noise_env_divider == 0) {
+                    noise_env_divider = noise_reg_ctrl.volume;
+                    if (noise_env_decay != 0) {
+                        noise_env_decay = noise_env_decay - 1;
+                    } else if (noise_reg_ctrl.length_counter_halt) {
+                        noise_env_decay = 4'hF;
+                    }
+                } else {
+                    noise_env_divider = noise_env_divider - 1;
+                }
+                if (triangle_linear_reload_flag) {
+                    triangle_linear_counter = triangle_reg_linear.reload;
+                } else if (triangle_linear_counter != 0) {
+                    triangle_linear_counter = triangle_linear_counter - 1;
+                }
+                if (!triangle_reg_linear.control) {
+                    triangle_linear_reload_flag = 0;
+                }
+            }
+
+            if (frame_half_tick) {
+                if (!pulse1_reg_ctrl.length_counter_halt && pulse1_length_counter != 0) {
+                    pulse1_length_counter = pulse1_length_counter - 1;
+                }
+                if (!pulse2_reg_ctrl.length_counter_halt && pulse2_length_counter != 0) {
+                    pulse2_length_counter = pulse2_length_counter - 1;
+                }
+                if (!triangle_reg_linear.control && triangle_length_counter != 0) {
+                    triangle_length_counter = triangle_length_counter - 1;
+                }
+                if (!noise_reg_ctrl.length_counter_halt && noise_length_counter != 0) {
+                    noise_length_counter = noise_length_counter - 1;
+                }
+                if (pulse1_reg_sweep.enabled && pulse1_reg_sweep.shift != 0) {
+                    if (pulse1_sweep_divider == 0) {
+                        pulse1_sweep_divider = pulse1_reg_sweep.period;
+                        if (!pulse1_sweep_mute) {
+                            pulse1_timer_period = pulse1_sweep_target[10:0];
+                        }
+                    } else {
+                        pulse1_sweep_divider = pulse1_sweep_divider - 1;
+                    }
+                }
+                if (pulse2_reg_sweep.enabled && pulse2_reg_sweep.shift != 0) {
+                    if (pulse2_sweep_divider == 0) {
+                        pulse2_sweep_divider = pulse2_reg_sweep.period;
+                        if (!pulse2_sweep_mute) {
+                            pulse2_timer_period = pulse2_sweep_target[10:0];
+                        }
+                    } else {
+                        pulse2_sweep_divider = pulse2_sweep_divider - 1;
+                    }
+                }
+            }
+
+            if (apu_tick_div == 2) {
+                apu_tick_div  = 0;
+                apu_half_tick = !apu_half_tick;
+                if (!frame_counter_write) {
+                    if (frame_counter_last) {
+                        frame_counter = 0;
+                    } else {
+                        frame_counter = frame_counter + 1;
+                    }
+                } else {
+                    frame_counter = 0;
+                }
+
+                if (apu_half_tick) {
+                    if (pulse1_timer_counter == 0) {
+                        pulse1_timer_counter = pulse1_timer_period;
+                        pulse1_sequencer     = pulse1_sequencer + 1;
+                    } else {
+                        pulse1_timer_counter = pulse1_timer_counter - 1;
+                    }
+                    if (pulse2_timer_counter == 0) {
+                        pulse2_timer_counter = pulse2_timer_period;
+                        pulse2_sequencer     = pulse2_sequencer + 1;
+                    } else {
+                        pulse2_timer_counter = pulse2_timer_counter - 1;
+                    }
+                    if (noise_timer_counter == 0) {
+                        noise_timer_counter = noise_timer_period;
+                        noise_shift         = {noise_feedback, noise_shift[14:1]};
+                    } else {
+                        noise_timer_counter = noise_timer_counter - 1;
+                    }
+                }
+                if (triangle_timer_counter == 0) {
+                    triangle_timer_counter = triangle_timer_period;
+                    if (triangle_enabled && triangle_length_counter != 0 && triangle_linear_counter != 0) {
+                        triangle_sequencer = triangle_sequencer + 1;
+                    }
+                } else {
+                    triangle_timer_counter = triangle_timer_counter - 1;
+                }
+            } else {
+                apu_tick_div = apu_tick_div + 1;
             }
         }
     }

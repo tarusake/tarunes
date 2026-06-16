@@ -1,0 +1,92 @@
+module i2s #(
+    param TEST_TONE: bbool = false,
+) (
+    clk       : input  clock   ,
+    rst       : input  reset   ,
+    sample    : input  logic<8>,
+    bclk      : output logic   ,
+    lrck      : output logic   ,
+    dout      : output logic   ,
+    sample_req: output logic   ,
+) {
+    // 27 MHz / (2 * 9) = 1.5 MHz BCLK, 1.5 MHz / 32 = 46.875 kHz LRCK.
+    const BCLK_HALF_DIV_LAST: logic<4> = 4'd8;
+    // 46.875 kHz / (2 * 23) = about 1.02 kHz.
+    const TEST_TONE_HALF_FRAMES: logic<5> = 5'd22;
+
+    var div_count      : logic<4> ;
+    var bit_index      : logic<5> ;
+    var bclk_reg       : logic    ;
+    var lrck_reg       : logic    ;
+    var dout_reg       : logic    ;
+    var shift_data     : logic<15>;
+    var frame_data     : logic<16>;
+    var sample_req_reg : logic    ;
+    var tone_half_count: logic<5> ;
+    var tone_sample    : logic<8> ;
+    var selected_sample: logic<8> ;
+    var pcm_sample     : logic<16>;
+
+    assign selected_sample = if TEST_TONE ? tone_sample : sample;
+    assign pcm_sample      = {selected_sample ^ 8'h80, 8'h00};
+    assign bclk            = bclk_reg;
+    assign lrck            = lrck_reg;
+    assign dout            = dout_reg;
+    assign sample_req      = sample_req_reg;
+
+    always_ff {
+        if_reset {
+            div_count       = 0;
+            bit_index       = 0;
+            bclk_reg        = 0;
+            lrck_reg        = 0;
+            dout_reg        = 0;
+            shift_data      = 0;
+            frame_data      = 0;
+            sample_req_reg  = 0;
+            tone_half_count = 0;
+            tone_sample     = 8'hc0;
+        } else {
+            sample_req_reg = 0;
+
+            if (div_count == BCLK_HALF_DIV_LAST) {
+                div_count = 0;
+
+                if (bclk_reg) {
+                    bclk_reg = 0;
+
+                    if (bit_index == 0) {
+                        frame_data = pcm_sample;
+                        shift_data = pcm_sample[14:0];
+                        dout_reg   = pcm_sample[15];
+                    } else if (bit_index == 16) {
+                        shift_data = frame_data[14:0];
+                        dout_reg   = frame_data[15];
+                    } else {
+                        shift_data = {shift_data[13:0], 1'b0};
+                        dout_reg   = shift_data[14];
+                    }
+
+                    lrck_reg = bit_index[4];
+
+                    if (bit_index == 5'd31) {
+                        bit_index      = 0;
+                        sample_req_reg = 1;
+                        if (tone_half_count == TEST_TONE_HALF_FRAMES) {
+                            tone_half_count = 0;
+                            tone_sample     = tone_sample ^ 8'h80;
+                        } else {
+                            tone_half_count = tone_half_count + 1;
+                        }
+                    } else {
+                        bit_index = bit_index + 1;
+                    }
+                } else {
+                    bclk_reg = 1;
+                }
+            } else {
+                div_count = div_count + 1;
+            }
+        }
+    }
+}
