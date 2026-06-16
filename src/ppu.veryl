@@ -1,85 +1,319 @@
 module ppu (
-    clk     : input   clock                     ,
-    rst     : input   reset                     ,
-    cpubus  : modport bus_if::<8, 3>::slave     ,
-    ppubus  : modport bus_if::<8, 14>::master   ,
-    scanline: output  logic                  <9>,
-    cycle   : output  logic                  <9>,
-    pixel_r : output  logic                  <8>,
-    pixel_g : output  logic                  <8>,
-    pixel_b : output  logic                  <8>,
-    nmi     : output  logic                     ,
+    clk                     : input   clock                     ,
+    rst                     : input   reset                     ,
+    frame_sync              : input   logic                     ,
+    cpubus                  : modport bus_if::<8, 3>::slave     ,
+    ppubus                  : modport bus_if::<8, 14>::master   ,
+    scanline                : output  logic                  <9>,
+    cycle                   : output  logic                  <9>,
+    pixel_index             : output  logic                  <6>,
+    nmi                     : output  logic                     ,
+    frame_wait              : output  logic                     ,
+    debug_palette0          : output  logic                  <8>,
+    debug_palette1          : output  logic                  <8>,
+    debug_palette2          : output  logic                  <8>,
+    debug_palette3          : output  logic                  <8>,
+    debug_bg_palette_addr   : output  logic                  <5>,
+    debug_bg_palette_data   : output  logic                  <8>,
+    debug_palette_write     : output  logic                     ,
+    debug_palette_write_addr: output  logic                  <5>,
+    debug_palette_write_data: output  logic                  <8>,
 ) {
-    var pixel_index  : logic<6> ;
-    var palette_color: logic<24>;
+    struct ppu_ctrl_t {
+        nmi_enable              : logic   ,
+        master_slave            : logic   ,
+        sprite_size             : logic   ,
+        background_pattern_table: logic   ,
+        sprite_pattern_table    : logic   ,
+        vram_increment          : logic   ,
+        base_nametable          : logic<2>,
+    }
+
+    struct ppu_mask_t {
+        emphasize_blue      : logic,
+        emphasize_green     : logic,
+        emphasize_red       : logic,
+        show_sprites        : logic,
+        show_background     : logic,
+        show_sprites_left   : logic,
+        show_background_left: logic,
+        greyscale           : logic,
+    }
+
+    struct ppu_status_t {
+        vblank         : logic   ,
+        sprite0_hit    : logic   ,
+        sprite_overflow: logic   ,
+        open_bus       : logic<5>,
+    }
+
+    struct oam_t {
+        y   : logic<8>,
+        tile: logic<8>,
+        attr: logic<8>,
+        x   : logic<8>,
+    }
+
+    const PPUCTRL_ADDR  : logic<3> = 3'd0;
+    const PPUMASK_ADDR  : logic<3> = 3'd1;
+    const PPUSTATUS_ADDR: logic<3> = 3'd2;
+    const OAMADDR_ADDR  : logic<3> = 3'd3;
+    const OAMDATA_ADDR  : logic<3> = 3'd4;
+    const PPUSCROLL_ADDR: logic<3> = 3'd5;
+    const PPUADDR_ADDR  : logic<3> = 3'd6;
+    const PPUDATA_ADDR  : logic<3> = 3'd7;
 
     // VRAM Address Latch
-    var reg_ctrl: logic<8> ;
-    var reg_w   : logic    ;
-    var reg_v   : logic<16>;
+    var reg_ctrl     : ppu_ctrl_t      ;
+    var reg_mask     : ppu_mask_t      ;
+    var reg_status   : ppu_status_t    ;
+    var reg_w        : logic           ;
+    var reg_v        : logic       <16>;
+    var reg_t        : logic       <16>;
+    var reg_oam_addr : logic       <8> ;
+    var fine_x_scroll: logic       <3> ;
 
-    var palette_ram: logic<8> [32];
+    // Gowinで小さいパレットRAMをRAM16系に推論させず、simに近いregister実装に固定する。
+    // FPGAの未初期化値で背景色が固定されないよう、reset時は既知の黒系色にする。
+    var palette_ram       : logic<8> [32];
+    var oam               : oam_t    [64];
+    var sprite_zero_hit   : logic        ;
+    var ppu_data_buffer   : logic<8>     ;
+    var ppu_data_read_wait: logic<2>     ;
 
     // ppubus.address mux
     var ppu_addr_cpu   : logic<14>;
     var ppu_addr_render: logic<14>;
-    assign ppubus.addr = if ppubus.wen ? ppu_addr_cpu : ppu_addr_render;
+
+    // パレット背景色 $3F10/$14/$18/$1C は $3F00/$04/$08/$0C のミラー。
+    function palette_addr (
+        addr: input logic<5>,
+    ) -> logic<5> {
+        if (addr == 5'h10 || addr == 5'h14 || addr == 5'h18 || addr == 5'h1C) {
+            return addr - 5'h10;
+        } else {
+            return addr;
+        }
+    }
+
+    function is_palette_addr (
+        addr: input logic<16>,
+    ) -> logic {
+        return addr[15:8] == 8'h3F;
+    }
+
+    function bg_nt_addr (
+        v: input logic<16>,
+    ) -> logic<14> {
+        return 14'h2000 + v[11:0];
+    }
+
+    function bg_attr_addr (
+        v: input logic<16>,
+    ) -> logic<14> {
+        return 14'h23C0 + {2'b00, v[11:10], 10'h000} + {5'b00000, v[9:7], 3'b000} + {7'b0000000, v[4:2]};
+    }
+
+    function increment_bg_x (
+        v: input logic<16>,
+    ) -> logic<16> {
+        var ret: logic<16>;
+        ret = v;
+        if (ret[4:0] == 5'd31) {
+            ret[4:0] = 0;
+            ret[10]  = ~ret[10];
+        } else {
+            ret[4:0] = ret[4:0] + 1;
+        }
+        return ret;
+    }
+
+    function increment_bg_y (
+        v: input logic<16>,
+    ) -> logic<16> {
+        var ret: logic<16>;
+        ret = v;
+        if (ret[14:12] != 3'd7) {
+            ret[14:12] = ret[14:12] + 1;
+        } else {
+            ret[14:12] = 0;
+            if (ret[9:5] == 5'd29) {
+                ret[9:5] = 0;
+                ret[11]  = ~ret[11];
+            } else if (ret[9:5] == 5'd31) {
+                ret[9:5] = 0;
+            } else {
+                ret[9:5] = ret[9:5] + 1;
+            }
+        }
+        return ret;
+    }
+
+    always_comb {
+        ppubus.addr  = ppu_addr_render;
+        ppubus.wen   = 0;
+        ppubus.wdata = 0;
+
+        if (ppu_data_read_wait != 0) {
+            ppubus.addr = ppu_addr_cpu;
+        }
+
+        if (cpubus.wen && cpubus.addr == PPUDATA_ADDR && !is_palette_addr(reg_v)) {
+            ppubus.addr  = reg_v[13:0];
+            ppubus.wen   = 1;
+            ppubus.wdata = cpubus.wdata;
+        }
+    }
 
     // register bus
     always_ff {
         if_reset {
-            ppu_addr_cpu = 0;
-            ppubus.wen   = 0;
-            ppubus.wdata = 0;
-            reg_ctrl     = 0;
-            reg_w        = 0;
-            reg_v        = 0;
-            palette_ram  = '{default: 0};
-        } else {
-            // default
-            ppubus.wen = 0;
+            ppu_addr_cpu       = 0;
+            cpubus.rdata       = 0;
+            reg_ctrl           = 0;
+            reg_mask           = 0;
+            reg_status         = 0;
+            reg_w              = 0;
+            reg_v              = 0;
+            reg_t              = 0;
+            fine_x_scroll      = 0;
+            reg_oam_addr       = 0;
+            palette_ram        = '{default: 8'h00};
+            oam                = '{default: 0};
+            ppu_data_buffer    = 0;
+            ppu_data_read_wait = 0;
+        } else if !frame_wait {
+            if (ppu_data_read_wait != 0) {
+                if (ppu_data_read_wait == 1) {
+                    ppu_data_buffer    = ppubus.rdata;
+                    ppu_data_read_wait = 0;
+                } else {
+                    ppu_data_read_wait = ppu_data_read_wait - 1;
+                }
+            }
+
+            if (scanline == 241 && cycle == 0) {
+                reg_status.vblank = 1;
+            } else if (scanline == 261 && cycle == 0) {
+                reg_status.vblank      = 0;
+                reg_status.sprite0_hit = 0;
+            } else if (sprite_zero_hit) {
+                reg_status.sprite0_hit = 1;
+            }
 
             if (cpubus.wen) {
                 case (cpubus.addr) {
-                    0: {
-                        reg_ctrl = cpubus.wdata;
+                    PPUCTRL_ADDR: {
+                        reg_ctrl     = cpubus.wdata;
+                        reg_t[11:10] = cpubus.wdata[1:0];
                     }
 
-                    6: {
-                        reg_w = ~reg_w;
+                    PPUMASK_ADDR: {
+                        reg_mask = cpubus.wdata;
+                    }
+
+                    OAMADDR_ADDR: {
+                        reg_oam_addr = cpubus.wdata;
+                    }
+
+                    OAMDATA_ADDR: {
+                        case (reg_oam_addr[1:0]) {
+                            0: {
+                                oam[reg_oam_addr[7:2]].y = cpubus.wdata;
+                            }
+                            1: {
+                                oam[reg_oam_addr[7:2]].tile = cpubus.wdata;
+                            }
+                            2: {
+                                oam[reg_oam_addr[7:2]].attr = cpubus.wdata;
+                            }
+                            default: {
+                                oam[reg_oam_addr[7:2]].x = cpubus.wdata;
+                            }
+                        }
+                        reg_oam_addr = reg_oam_addr + 1;
+                    }
+
+                    PPUSCROLL_ADDR: {
                         if (!reg_w) {
-                            reg_v[15:8] = cpubus.wdata;
+                            reg_t[4:0]    = cpubus.wdata[7:3];
+                            fine_x_scroll = cpubus.wdata[2:0];
                         } else {
-                            reg_v[7:0] = cpubus.wdata;
+                            reg_t[9:5]   = cpubus.wdata[7:3];
+                            reg_t[14:12] = cpubus.wdata[2:0];
                         }
+                        reg_w = ~reg_w;
                     }
 
-                    7: {
+                    PPUADDR_ADDR: {
+                        if (!reg_w) {
+                            reg_t[14:8] = {1'b0, cpubus.wdata[5:0]};
+                        } else {
+                            reg_t[7:0] = cpubus.wdata;
+                            reg_v      = {reg_t[15:8], cpubus.wdata};
+                        }
+                        reg_w = ~reg_w;
+                    }
+
+                    PPUDATA_ADDR: {
                         // Palette RAM
-                        if (reg_v[15:8] == 8'h3F) {
-                            palette_ram[reg_v[4:0]] = cpubus.wdata;
-                        } else {
-                            ppubus.wen   = 1;
-                            ppu_addr_cpu = reg_v[13:0];
-                            ppubus.wdata = cpubus.wdata;
+                        if (is_palette_addr(reg_v)) {
+                            palette_ram[palette_addr(reg_v[4:0])] = cpubus.wdata;
                         }
-                        reg_v = reg_v + (if reg_ctrl[2] ? 32 : 1);
+                        reg_v = reg_v + (if reg_ctrl.vram_increment ? 32 : 1);
+                    }
+                }
+            } else {
+                case (cpubus.addr) {
+                    PPUSTATUS_ADDR: {
+                        cpubus.rdata      = reg_status;
+                        reg_status.vblank = 0;
+                        reg_w             = 0;
+                    }
+                    OAMDATA_ADDR: {
+                        case (reg_oam_addr[1:0]) {
+                            0: {
+                                cpubus.rdata = oam[reg_oam_addr[7:2]].y;
+                            }
+                            1: {
+                                cpubus.rdata = oam[reg_oam_addr[7:2]].tile;
+                            }
+                            2: {
+                                cpubus.rdata = oam[reg_oam_addr[7:2]].attr;
+                            }
+                            default: {
+                                cpubus.rdata = oam[reg_oam_addr[7:2]].x;
+                            }
+                        }
+                    }
+                    PPUDATA_ADDR: {
+                        if (is_palette_addr(reg_v)) {
+                            cpubus.rdata = palette_ram[palette_addr(reg_v[4:0])];
+                        } else {
+                            cpubus.rdata       = ppu_data_buffer;
+                            ppu_addr_cpu       = reg_v[13:0];
+                            ppu_data_read_wait = 2;
+                        }
+
+                        reg_v = reg_v + (if reg_ctrl.vram_increment ? 32 : 1);
+                    }
+                    default: {
+                        cpubus.rdata = 0;
                     }
                 }
             }
-        }
-    }
 
-    always_ff {
-        if_reset {
-            cpubus.rdata = 0;
-        } else {
-            case (cpubus.addr) {
-                2: {
-                    cpubus.rdata = if scanline >= 241 && scanline <= 260 ? 8'h80 : 8'h00;
-                }
-                default: {
-                    cpubus.rdata = 0;
+            if ((reg_mask.show_background || reg_mask.show_sprites) && (scanline <: 240 || scanline == 261)) {
+                if (cycle == 255) {
+                    reg_v = increment_bg_y(increment_bg_x(reg_v));
+                } else if ((cycle <: 256 || (cycle >= 320 && cycle <: 336)) && cycle[2:0] == 7) {
+                    reg_v = increment_bg_x(reg_v);
+                } else if (cycle == 256) {
+                    reg_v[10]  = reg_t[10];
+                    reg_v[4:0] = reg_t[4:0];
+                } else if (scanline == 261 && cycle >= 280 && cycle <: 305) {
+                    reg_v[14:11] = reg_t[14:11];
+                    reg_v[9:5]   = reg_t[9:5];
                 }
             }
         }
@@ -87,20 +321,29 @@ module ppu (
 
     always_ff {
         if_reset {
-            cycle    = 0;
-            scanline = 0;
-            nmi      = 0;
-        } else {
+            cycle      = 0;
+            scanline   = 0;
+            nmi        = 0;
+            frame_wait = 0;
+        } else if frame_wait {
             nmi = 0;
-            if (scanline == 241 && cycle == 0 && reg_ctrl[7]) {
+            if frame_sync {
+                cycle      = 0;
+                scanline   = 0;
+                frame_wait = 0;
+            }
+        } else {
+            if (scanline == 241 && cycle == 0 && reg_ctrl.nmi_enable) {
                 nmi = 1;
+            } else {
+                nmi = 0;
             }
 
             if (cycle == 340) {
-                cycle = 0;
                 if (scanline == 261) {
-                    scanline = 0;
+                    frame_wait = 1;
                 } else {
+                    cycle    = 0;
                     scanline = scanline + 1;
                 }
             } else {
@@ -112,101 +355,296 @@ module ppu (
     var visible: logic;
     assign visible = cycle <: 256 && scanline <: 240;
 
+    var sprite_eval_line: logic<9>;
+    assign sprite_eval_line = if (scanline == 261) ? 0 : scanline + 1;
+
     // キャラクタROMのアドレス
     var chr_addr: logic<14>;
 
-    // キャラクタROMのデータ
-    var plane     : logic<8> [2];
-    var plane_draw: logic<8> [2];
+    var rendering_enabled: logic;
+    assign rendering_enabled = reg_mask.show_background || reg_mask.show_sprites;
 
-    // タイル情報と、次のタイル情報
-    var tile_x     : logic<6>;
-    var tile_y     : logic<6>;
-    var next_tile_x: logic<6>;
-    var next_tile_y: logic<6>;
-    assign tile_x      = cycle[8:3];
-    assign tile_y      = scanline[8:3];
-    assign next_tile_x = if (tile_x == 31) ? 0 : tile_x + 1;
-    assign next_tile_y = if (tile_x == 31) ? tile_y + 1 : tile_y;
+    var bg_fetch_active: logic;
+    assign bg_fetch_active = rendering_enabled && (scanline <: 240 || scanline == 261)
+        && (cycle <: 256 || (cycle >= 320 && cycle <: 336));
+
+    // Background fetch latches and shifters
+    var bg_attr_byte         : logic<8> ;
+    var bg_pattern_low_latch : logic<8> ;
+    var bg_pattern_high_latch: logic<8> ;
+    var bg_palette_latch     : logic<2> ;
+    var bg_pattern_shift_low : logic<16>;
+    var bg_pattern_shift_high: logic<16>;
+    var bg_attr_shift_low    : logic<16>;
+    var bg_attr_shift_high   : logic<16>;
+
+    // Sprite fetch buffer for the next visible scanline
+    var sprite_valid       : logic    [8];
+    var sprite_x           : logic<8> [8];
+    var sprite_tile        : logic<8> [8];
+    var sprite_attr        : logic<8> [8];
+    var sprite_row         : logic<3> [8];
+    var sprite_pattern_low : logic<8> [8];
+    var sprite_pattern_high: logic<8> [8];
+    var sprite_is_zero     : logic    [8];
+    var sprite_eval_count  : logic<4>    ;
+    var eval_sprite_valid  : logic    [8];
+    var eval_sprite_x      : logic<8> [8];
+    var eval_sprite_tile   : logic<8> [8];
+    var eval_sprite_attr   : logic<8> [8];
+    var eval_sprite_row    : logic<3> [8];
+    var eval_sprite_is_zero: logic    [8];
+    var eval_sprite_count  : logic<4>    ;
+
+    function sprite_on_line (
+        line : input logic<9>,
+        raw_y: input logic<8>,
+    ) -> logic {
+        let sprite_top: logic<9> = {1'b0, raw_y} + 1;
+        let sprite_end: logic<9> = sprite_top + 8;
+        return line >= sprite_top && line <: sprite_end;
+    }
+
+    function sprite_line_row (
+        line : input logic<9>,
+        raw_y: input logic<8>,
+        attr : input logic<8>,
+    ) -> logic<3> {
+        let sprite_top: logic<9> = {1'b0, raw_y} + 1;
+        let raw_row   : logic<3> = line[2:0] - sprite_top[2:0];
+        return if attr[7] ? 7 - raw_row : raw_row;
+    }
 
     // VRAMとキャラクタROMからデータを取ってくる
     always_ff {
         if_reset {
-            ppu_addr_render = 0;
-            chr_addr        = 0;
-            plane[0]        = 0;
-            plane[1]        = 0;
-            plane_draw[0]   = 0;
-            plane_draw[1]   = 0;
-        } else {
-            if (visible) {
+            ppu_addr_render       = 0;
+            chr_addr              = 0;
+            bg_attr_byte          = 0;
+            bg_pattern_low_latch  = 0;
+            bg_pattern_high_latch = 0;
+            bg_palette_latch      = 0;
+            bg_pattern_shift_low  = 0;
+            bg_pattern_shift_high = 0;
+            bg_attr_shift_low     = 0;
+            bg_attr_shift_high    = 0;
+            sprite_valid          = '{default: 0};
+            sprite_x              = '{default: 0};
+            sprite_tile           = '{default: 0};
+            sprite_attr           = '{default: 0};
+            sprite_row            = '{default: 0};
+            sprite_pattern_low    = '{default: 0};
+            sprite_pattern_high   = '{default: 0};
+            sprite_is_zero        = '{default: 0};
+            sprite_eval_count     = 0;
+            eval_sprite_valid     = '{default: 0};
+            eval_sprite_x         = '{default: 0};
+            eval_sprite_tile      = '{default: 0};
+            eval_sprite_attr      = '{default: 0};
+            eval_sprite_row       = '{default: 0};
+            eval_sprite_is_zero   = '{default: 0};
+            eval_sprite_count     = 0;
+        } else if !frame_wait {
+            if (bg_fetch_active) {
+                if (cycle[2:0] != 7) {
+                    bg_pattern_shift_low  = {bg_pattern_shift_low[14:0], 1'b0};
+                    bg_pattern_shift_high = {bg_pattern_shift_high[14:0], 1'b0};
+                    bg_attr_shift_low     = {bg_attr_shift_low[14:0], 1'b0};
+                    bg_attr_shift_high    = {bg_attr_shift_high[14:0], 1'b0};
+                }
+
                 case (cycle[2:0]) {
                     0: {
-                        let nt_addr        : logic<14> = 14'h2000 + next_tile_y * 32 + next_tile_x;
-                        ppu_addr_render = nt_addr;
+                        ppu_addr_render = bg_nt_addr(reg_v);
                     }
-                    // 1: {}
+                    1: {
+                        ppu_addr_render = bg_attr_addr(reg_v);
+                    }
                     2: {
-                        let tile_id        : logic<8> = ppubus.rdata;
-                        ppu_addr_render = tile_id * 16 + scanline[2:0];
-                        chr_addr        = tile_id * 16 + scanline[2:0];
+                        let tile_id        : logic<8>  = ppubus.rdata;
+                        let bg_pattern_base: logic<14> = if reg_ctrl.background_pattern_table ? 14'h1000 : 14'h0000;
+                        ppu_addr_render = bg_pattern_base + tile_id * 16 + reg_v[14:12];
+                        chr_addr        = bg_pattern_base + tile_id * 16 + reg_v[14:12];
                     }
                     3: {
+                        bg_attr_byte    = ppubus.rdata;
                         ppu_addr_render = chr_addr + 8;
                     }
                     4: {
-                        plane[0] = ppubus.rdata;
+                        bg_pattern_low_latch = ppubus.rdata;
+                        case ({reg_v[6], reg_v[1]}) {
+                            2'b00: {
+                                bg_palette_latch = bg_attr_byte[1:0];
+                            }
+                            2'b01: {
+                                bg_palette_latch = bg_attr_byte[3:2];
+                            }
+                            2'b10: {
+                                bg_palette_latch = bg_attr_byte[5:4];
+                            }
+                            default: {
+                                bg_palette_latch = bg_attr_byte[7:6];
+                            }
+                        }
                     }
                     5: {
-                        plane[1] = ppubus.rdata;
+                        bg_pattern_high_latch = ppubus.rdata;
                     }
-                    // 6: {}
-
-                    // レジスタに保存
                     7: {
-                        plane_draw[0] = plane[0];
-                        plane_draw[1] = plane[1];
+                        bg_pattern_shift_low  = {bg_pattern_shift_low[14:7], bg_pattern_low_latch};
+                        bg_pattern_shift_high = {bg_pattern_shift_high[14:7], bg_pattern_high_latch};
+                        bg_attr_shift_low     = {bg_attr_shift_low[14:7], bg_palette_latch[0] repeat 8};
+                        bg_attr_shift_high    = {bg_attr_shift_high[14:7], bg_palette_latch[1] repeat 8};
+                    }
+                }
+            }
+
+            if (visible) {
+                if (cycle == 0) {
+                    eval_sprite_valid   = '{default: 0};
+                    eval_sprite_x       = '{default: 0};
+                    eval_sprite_tile    = '{default: 0};
+                    eval_sprite_attr    = '{default: 0};
+                    eval_sprite_row     = '{default: 0};
+                    eval_sprite_is_zero = '{default: 0};
+                    eval_sprite_count   = 0;
+                }
+
+                if (cycle <: 64 && sprite_eval_line <: 240) {
+                    let oam_index      : logic<6> = cycle[5:0];
+                    let sprite_oam_y   : logic<8> = oam[oam_index].y;
+                    let sprite_oam_attr: logic<8> = oam[oam_index].attr;
+
+                    if (eval_sprite_count <: 8 && sprite_on_line(sprite_eval_line, sprite_oam_y)) {
+                        eval_sprite_valid[eval_sprite_count[2:0]]   = 1;
+                        eval_sprite_x[eval_sprite_count[2:0]]       = oam[oam_index].x;
+                        eval_sprite_tile[eval_sprite_count[2:0]]    = oam[oam_index].tile;
+                        eval_sprite_attr[eval_sprite_count[2:0]]    = sprite_oam_attr;
+                        eval_sprite_row[eval_sprite_count[2:0]]     = sprite_line_row(
+                            sprite_eval_line,
+                            sprite_oam_y,
+                            sprite_oam_attr,
+                        );
+                        eval_sprite_is_zero[eval_sprite_count[2:0]] = oam_index == 0;
+                        eval_sprite_count                           = eval_sprite_count + 1;
+                    }
+                }
+
+            } else if (cycle == 256) {
+                sprite_valid        = '{default: 0};
+                sprite_x            = '{default: 0};
+                sprite_tile         = '{default: 0};
+                sprite_attr         = '{default: 0};
+                sprite_row          = '{default: 0};
+                sprite_pattern_low  = '{default: 0};
+                sprite_pattern_high = '{default: 0};
+                sprite_is_zero      = '{default: 0};
+                sprite_eval_count   = 0;
+                sprite_valid        = eval_sprite_valid;
+                sprite_x            = eval_sprite_x;
+                sprite_tile         = eval_sprite_tile;
+                sprite_attr         = eval_sprite_attr;
+                sprite_row          = eval_sprite_row;
+                sprite_is_zero      = eval_sprite_is_zero;
+                sprite_eval_count   = eval_sprite_count;
+            } else if (cycle >= 257 && cycle <: 289) {
+                let sprite_fetch_cycle : logic<9>  = cycle - 257;
+                let sprite_fetch_slot  : logic<3>  = sprite_fetch_cycle[4:2];
+                let sprite_fetch_phase : logic<2>  = sprite_fetch_cycle[1:0];
+                let sprite_pattern_base: logic<14> = if reg_ctrl.sprite_pattern_table ? 14'h1000 : 14'h0000;
+                let sprite_chr_addr    : logic<14> = sprite_pattern_base + sprite_tile[sprite_fetch_slot] * 16
+                    + sprite_row[sprite_fetch_slot];
+
+                case (sprite_fetch_phase) {
+                    0: {
+                        ppu_addr_render = sprite_chr_addr;
+                    }
+                    1: {
+                        ppu_addr_render = sprite_chr_addr + 8;
+                    }
+                    2: {
+                        sprite_pattern_low[sprite_fetch_slot] = ppubus.rdata;
+                    }
+                    3: {
+                        sprite_pattern_high[sprite_fetch_slot] = ppubus.rdata;
                     }
                 }
             }
         }
     }
 
-    var color_2bit: logic<2>;
-    var fine_x    : logic<3>;
+    var color_2bit           : logic<2>;
+    var fine_x               : logic<4>;
+    var bg_palette_select    : logic<2>;
+    var bg_visible           : logic   ;
+    var bg_pixel_visible     : logic   ;
+    var sprite_visible       : logic   ;
+    var sprite_pixel_visible : logic   ;
+    var sprite_priority_back : logic   ;
+    var sprite_color_2bit    : logic<2>;
+    var sprite_palette_select: logic<2>;
+    var sprite_zero_pixel    : logic   ;
+    var bg_palette_addr      : logic<5>;
 
-    // tile内のX座標0 -> {plane[1][7],plane[0][7]};
-    // tile内のX座標1 -> {plane[1][6],plane[0][6]};
-    // ...
-    // 保存していたROMデータをもとに1clkずつ情報をとりだす
-    assign fine_x     = 7 - cycle[2:0];
-    assign color_2bit = {plane_draw[1][fine_x], plane_draw[0][fine_x]};
+    assign bg_palette_addr          = {1'b0, bg_palette_select, color_2bit};
+    assign debug_palette0           = palette_ram[0];
+    assign debug_palette1           = palette_ram[1];
+    assign debug_palette2           = palette_ram[2];
+    assign debug_palette3           = palette_ram[3];
+    assign debug_bg_palette_addr    = bg_palette_addr;
+    assign debug_bg_palette_data    = palette_ram[bg_palette_addr];
+    assign debug_palette_write      = cpubus.wen && cpubus.addr == PPUDATA_ADDR && is_palette_addr(reg_v);
+    assign debug_palette_write_addr = palette_addr(reg_v[4:0]);
+    assign debug_palette_write_data = cpubus.wdata;
 
-    // NES Palette (64 colors) - RGB332 format
-    const NES_PALETTE: logic<24> [64] = '{
-        24'h808080, 24'h003DA6, 24'h0012B0, 24'h440096, 24'hA1005E, 24'hC70028, 24'hBA0600, 24'h8C1700, 24'h5C2F00,
-        24'h104500, 24'h054A00, 24'h00472E, 24'h004166, 24'h000000, 24'h050505, 24'h050505, 24'hC7C7C7, 24'h0077FF,
-        24'h2155FF, 24'h8237FA, 24'hEB2FB5, 24'hFF2950, 24'hFF2200, 24'hD63200, 24'hC46200, 24'h358000, 24'h058F00,
-        24'h008A55, 24'h0099CC, 24'h212121, 24'h090909, 24'h090909, 24'hFFFFFF, 24'h0FD7FF, 24'h69A2FF, 24'hD480FF,
-        24'hFF45F3, 24'hFF618B, 24'hFF8833, 24'hFF9C12, 24'hFABC20, 24'h9FE30E, 24'h2BF035, 24'h0CF0A4, 24'h05FBFF,
-        24'h5E5E5E, 24'h0D0D0D, 24'h0D0D0D, 24'hFFFFFF, 24'hA6FCFF, 24'hB3ECFF, 24'hDAABEB, 24'hFFA8F9, 24'hFFABB3,
-        24'hFFD2B0, 24'hFFEFA6, 24'hFFF79C, 24'hD7E895, 24'hA6EDAF, 24'hA2F2DA, 24'h99FFFC, 24'hDDDDDD, 24'h111111,
-        24'h111111
-    };
+    assign fine_x            = 4'd15 - {1'b0, fine_x_scroll};
+    assign color_2bit        = {bg_pattern_shift_high[fine_x], bg_pattern_shift_low[fine_x]};
+    assign bg_palette_select = {bg_attr_shift_high[fine_x], bg_attr_shift_low[fine_x]};
+    assign bg_visible        = reg_mask.show_background && (reg_mask.show_background_left || !(cycle <: 8));
+    assign bg_pixel_visible  = bg_visible && color_2bit != 0;
+    assign sprite_visible    = reg_mask.show_sprites && (reg_mask.show_sprites_left || !(cycle <: 8));
+    // SMB waits for sprite0 hit before changing scroll mid-frame.  This PPU's
+    // background fetch is simplified, so tying the hit to the exact fetched
+    // background pixel can miss the split point during horizontal scroll.
+    assign sprite_zero_hit = visible && bg_visible && sprite_zero_pixel;
 
     always_comb {
-        if (cycle <: 256 && scanline <: 240) {
-            pixel_index = palette_ram[{2'b00, color_2bit}];
-        } else {
-            pixel_index = 'h0F;
+        sprite_pixel_visible  = 0;
+        sprite_priority_back  = 0;
+        sprite_color_2bit     = 0;
+        sprite_palette_select = 0;
+        sprite_zero_pixel     = 0;
+
+        for i in 0..8 {
+            let sprite_right : logic<9> = {1'b0, sprite_x[i]} + 8;
+            let sprite_offset: logic<3> = cycle[2:0] - sprite_x[i][2:0];
+            let sprite_bit   : logic<3> = if sprite_attr[i][6] ? sprite_offset : 7 - sprite_offset;
+            let sprite_color : logic<2> = {sprite_pattern_high[i][sprite_bit], sprite_pattern_low[i][sprite_bit]};
+
+            if (visible && sprite_visible && !sprite_pixel_visible && sprite_valid[i] && cycle >= {1'b0, sprite_x[i]}
+                && cycle <: sprite_right) {
+                if (sprite_color != 0) {
+                    sprite_pixel_visible  = 1;
+                    sprite_priority_back  = sprite_attr[i][5];
+                    sprite_color_2bit     = sprite_color;
+                    sprite_palette_select = sprite_attr[i][1:0];
+                    sprite_zero_pixel     = sprite_is_zero[i];
+                }
+            }
         }
     }
 
-    // パレットルックアップ
-    assign palette_color = NES_PALETTE[pixel_index];
-
-    // 8ビットRGBに変換
-    assign pixel_r = {palette_color[23:16]};
-    assign pixel_g = {palette_color[15:8]};
-    assign pixel_b = {palette_color[7:0]};
+    always_comb {
+        if (cycle <: 256 && scanline <: 240) {
+            if (sprite_pixel_visible && (!sprite_priority_back || !bg_pixel_visible)) {
+                pixel_index = palette_ram[{1'b1, sprite_palette_select, sprite_color_2bit}][5:0];
+            } else if (bg_pixel_visible) {
+                pixel_index = palette_ram[bg_palette_addr][5:0];
+            } else {
+                pixel_index = palette_ram[5'd0][5:0];
+            }
+        } else {
+            pixel_index = 6'h0F;
+        }
+    }
 }

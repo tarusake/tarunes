@@ -1,0 +1,62 @@
+module oam_dma (
+    clk       : input   clock                     ,
+    rst       : input   reset                     ,
+    stall     : input   logic                     ,
+    start     : input   logic                     ,
+    page      : input   logic                  <8>,
+    busy      : output  logic                     ,
+    wrambus   : modport bus_if::<8, 11>::master   ,
+    ppu_regbus: modport bus_if::<8, 3>::master    ,
+) {
+    enum dma_state_t {
+        IDLE,
+        READ,
+        WRITE,
+    }
+
+    var state     : dma_state_t    ;
+    var page_latch: logic      <8> ;
+    var index     : logic      <8> ;
+    var dma_addr  : logic      <16>;
+
+    assign busy             = state != dma_state_t::IDLE;
+    assign dma_addr         = {page_latch, index};
+    assign wrambus.addr     = dma_addr[10:0];
+    assign wrambus.wen      = 0;
+    assign wrambus.wdata    = 0;
+    assign ppu_regbus.addr  = 3'd4;
+    assign ppu_regbus.wen   = state == dma_state_t::WRITE;
+    assign ppu_regbus.wdata = wrambus.rdata;
+
+    always_ff {
+        if_reset {
+            state      = dma_state_t::IDLE;
+            page_latch = 0;
+            index      = 0;
+        } else if !stall {
+            case (state) {
+                dma_state_t::IDLE: {
+                    if (start) {
+                        page_latch = page;
+                        index      = 0;
+                        state      = dma_state_t::READ;
+                    }
+                }
+                dma_state_t::READ: {
+                    state = dma_state_t::WRITE;
+                }
+                dma_state_t::WRITE: {
+                    if (index == 8'hFF) {
+                        state = dma_state_t::IDLE;
+                    } else {
+                        index = index + 1;
+                        state = dma_state_t::READ;
+                    }
+                }
+                default: {
+                    state = dma_state_t::IDLE;
+                }
+            }
+        }
+    }
+}
