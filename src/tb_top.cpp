@@ -760,7 +760,7 @@ int main(int argc, char** argv) {
     const int RESET_CYCLES = 4;
     int frame_count = 0;
     int prev_scanline = 0;
-    bool prev_hdmi_de = false;
+    bool prev_hdmi_frame_start = false;
     bool has_seen_hdmi_frame_start = false;
     bool running = true;
     bool has_completed_frame = false;
@@ -876,8 +876,6 @@ int main(int argc, char** argv) {
                     dut->rootp->tarunes_top__DOT__ppu_inst__DOT__ppu_addr_cpu);
             }
         }
-        frame_sync_pulse = dut->rootp->tarunes_top__DOT__ppu_frame_wait;
-
         if (dut->rootp->tarunes_top__DOT__audio_write_pulse) {
             int centered = static_cast<int>(dut->audio_sample) - 128;
             int16_t sample = static_cast<int16_t>(centered * 192);
@@ -891,12 +889,16 @@ int main(int argc, char** argv) {
         bool hdmi_frame_start = false;
         if (capture_hdmi) {
             bool hdmi_de = dut->hdmi_de;
+            int hdmi_x = dut->hdmi_video_x;
             int hdmi_y = dut->hdmi_video_y;
-            hdmi_frame_start = hdmi_de && !prev_hdmi_de && hdmi_y == 0;
+            bool hdmi_frame_start_now = hdmi_de && hdmi_x == 0 && hdmi_y == 0;
+            hdmi_frame_start = hdmi_frame_start_now && !prev_hdmi_frame_start;
             frame_completed = hdmi_frame_start && has_seen_hdmi_frame_start;
+            frame_sync_pulse = hdmi_frame_start;
         } else {
             int scanline = dut->scanline;
             frame_completed = prev_scanline == 261 && scanline == 0;
+            frame_sync_pulse = dut->rootp->tarunes_top__DOT__ppu_frame_wait;
         }
 
         if (frame_completed) {
@@ -940,7 +942,7 @@ int main(int argc, char** argv) {
                     ((pixel_g & 0xFF) << 8) |
                     (pixel_b & 0xFF);
             }
-            prev_hdmi_de = hdmi_de;
+            prev_hdmi_frame_start = hdmi_de && hdmi_x == 0 && hdmi_y == 0;
         } else {
             int scanline = dut->scanline;
             int cycle = dut->cycle;
