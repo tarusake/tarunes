@@ -1,0 +1,111 @@
+module sfc_controller #(
+    param HALF_PERIOD_CYCLES: logic<16> = 16'd162  ,
+    param LATCH_CYCLES      : logic<16> = 16'd324  ,
+    param POLL_GAP_CYCLES   : logic<20> = 20'd27000,
+) (
+    clk      : input  clock   ,
+    rst      : input  reset   ,
+    sfc_data : input  logic   ,
+    sfc_latch: output logic   ,
+    sfc_clk  : output logic   ,
+    buttons  : output logic<8>,
+) {
+    const STATE_GAP     : logic<3> = 3'd0;
+    const STATE_LATCH   : logic<3> = 3'd1;
+    const STATE_SAMPLE  : logic<3> = 3'd2;
+    const STATE_CLK_LOW : logic<3> = 3'd3;
+    const STATE_CLK_HIGH: logic<3> = 3'd4;
+    const STATE_PUBLISH : logic<3> = 3'd5;
+
+    var state    : logic<3> ;
+    var timer    : logic<20>;
+    var bit_index: logic<5> ;
+    var raw      : logic<16>;
+    var data_sync: logic<2> ;
+
+    always_ff {
+        if_reset {
+            state     = STATE_GAP;
+            timer     = 0;
+            bit_index = 0;
+            raw       = 0;
+            data_sync = 2'b11;
+            sfc_latch = 0;
+            sfc_clk   = 1;
+            buttons   = 0;
+        } else {
+            data_sync = {data_sync[0], sfc_data};
+
+            case (state) {
+                STATE_GAP: {
+                    sfc_latch = 0;
+                    sfc_clk   = 1;
+                    if (timer == POLL_GAP_CYCLES) {
+                        timer     = 0;
+                        raw       = 0;
+                        bit_index = 0;
+                        state     = STATE_LATCH;
+                    } else {
+                        timer = timer + 1;
+                    }
+                }
+                STATE_LATCH: {
+                    sfc_latch = 1;
+                    sfc_clk   = 1;
+                    if (timer == {4'b0000, LATCH_CYCLES}) {
+                        timer = 0;
+                        state = STATE_SAMPLE;
+                    } else {
+                        timer = timer + 1;
+                    }
+                }
+                STATE_SAMPLE: {
+                    sfc_latch           = 0;
+                    sfc_clk             = 1;
+                    raw[bit_index[3:0]] = !data_sync[1];
+                    if (bit_index == 5'd15) {
+                        state = STATE_PUBLISH;
+                    } else {
+                        timer = 0;
+                        state = STATE_CLK_LOW;
+                    }
+                }
+                STATE_CLK_LOW: {
+                    sfc_latch = 0;
+                    sfc_clk   = 0;
+                    if (timer == {4'b0000, HALF_PERIOD_CYCLES}) {
+                        timer = 0;
+                        state = STATE_CLK_HIGH;
+                    } else {
+                        timer = timer + 1;
+                    }
+                }
+                STATE_CLK_HIGH: {
+                    sfc_latch = 0;
+                    sfc_clk   = 1;
+                    if (timer == {4'b0000, HALF_PERIOD_CYCLES}) {
+                        timer     = 0;
+                        bit_index = bit_index + 1;
+                        state     = STATE_SAMPLE;
+                    } else {
+                        timer = timer + 1;
+                    }
+                }
+                STATE_PUBLISH: {
+                    sfc_latch = 0;
+                    sfc_clk   = 1;
+                    buttons   = {raw[7], raw[6], raw[5], raw[4], raw[3], raw[2], raw[0], raw[8]};
+                    timer     = 0;
+                    state     = STATE_GAP;
+                }
+                default: {
+                    state     = STATE_GAP;
+                    timer     = 0;
+                    bit_index = 0;
+                    sfc_latch = 0;
+                    sfc_clk   = 1;
+                }
+            }
+        }
+    }
+}

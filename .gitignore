@@ -15,6 +15,13 @@ obj_dir/
 # Temporary files
 *.log
 *.bmp
+*.png
+*.wav
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
 
 # Veryl Library
 core/dependencies/

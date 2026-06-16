@@ -27,6 +27,49 @@ LOOP_SPECS = (
         ),
     ),
     LoopSpec(
+        "800A/800D",
+        (
+            re.compile(r"^800A\s+LDA\s+PpuStatus_2002\s+=\s+\$[0-9A-Fa-f]{2}\b"),
+            re.compile(r"^800D\s+BPL\s+\$800A\b"),
+        ),
+    ),
+    LoopSpec(
+        "800F/8012",
+        (
+            re.compile(r"^800F\s+LDA\s+PpuStatus_2002\s+=\s+\$[0-9A-Fa-f]{2}\b"),
+            re.compile(r"^8012\s+BPL\s+\$800F\b"),
+        ),
+    ),
+    LoopSpec(
+        "8057",
+        (
+            re.compile(r"^8057\s+JMP\s+\$8057\b"),
+        ),
+    ),
+    LoopSpec(
+        "813D/8140/8142",
+        (
+            re.compile(r"^813D\s+LDA\s+PpuStatus_2002\s+=\s+\$[0-9A-Fa-f]{2}\b"),
+            re.compile(r"^8140\s+AND\s+#\$40\b"),
+            re.compile(r"^8142\s+BNE\s+\$813D\b"),
+        ),
+    ),
+    LoopSpec(
+        "8150/8153/8155",
+        (
+            re.compile(r"^8150\s+LDA\s+PpuStatus_2002\s+=\s+\$[0-9A-Fa-f]{2}\b"),
+            re.compile(r"^8153\s+AND\s+#\$40\b"),
+            re.compile(r"^8155\s+BEQ\s+\$8150\b"),
+        ),
+    ),
+    LoopSpec(
+        "8E3B/8E3F",
+        (
+            re.compile(r"^8E3B\s+STA\s+PpuData_2007\b"),
+            re.compile(r"^8E3F\s+BNE\s+\$8E3B\b"),
+        ),
+    ),
+    LoopSpec(
         "C034/C037/C038",
         (
             re.compile(r"^C034\s+STA\s+PpuData_2007\b"),
@@ -165,7 +208,7 @@ def matching_spec(line: str) -> LoopSpec | None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Collapse long nestest wait loops in a Mesen-style CPU trace."
+        description="Collapse long wait loops in a Mesen-style CPU trace."
     )
     parser.add_argument("input", nargs="?", type=Path, default=Path("nestest.log"))
     parser.add_argument("-o", "--output", type=Path, help="write collapsed log to this file")

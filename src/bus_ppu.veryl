@@ -1,6 +1,7 @@
 module bus_ppu (
     clk    : input   clock                  ,
     rst    : input   reset                  ,
+    stall  : input   logic                  ,
     ppubus : modport bus_if::<8, 14>::slave ,
     crombus: modport bus_if::<8, 13>::master,
     vrambus: modport bus_if::<8, 11>::master,
@@ -14,12 +15,12 @@ module bus_ppu (
     assign sel_vram = ppubus.addr >= 16'h2000 && ppubus.addr <: 16'h3F00;
 
     // address assign
-    assign crombus.addr = if sel_crom ? ppubus.addr : 'x;
-    assign vrambus.addr = if sel_vram ? ppubus.addr : 'x;
+    assign crombus.addr = if sel_crom ? ppubus.addr : 0;
+    assign vrambus.addr = if sel_vram ? ppubus.addr : 0;
 
     // Write bus assign
-    assign vrambus.wdata = if sel_vram ? ppubus.wdata : 'x;
-    assign vrambus.wen   = if sel_vram ? ppubus.wen : 'x;
+    assign vrambus.wdata = if sel_vram ? ppubus.wdata : 0;
+    assign vrambus.wen   = if sel_vram ? ppubus.wen : 0;
 
     // rom
     assign crombus.wdata = 0;
@@ -33,7 +34,7 @@ module bus_ppu (
         if_reset {
             sel_crom_d = 0;
             sel_vram_d = 0;
-        } else {
+        } else if !stall {
             sel_crom_d = sel_crom;
             sel_vram_d = sel_vram;
         }
@@ -45,7 +46,7 @@ module bus_ppu (
         } else if (sel_vram_d) {
             ppubus.rdata = vrambus.rdata;
         } else {
-            ppubus.rdata = 'x;
+            ppubus.rdata = 0;
         }
     }
 

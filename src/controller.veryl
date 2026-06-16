@@ -1,6 +1,7 @@
 module controller (
     clk             : input   clock                   ,
     rst             : input   reset                   ,
+    stall           : input   logic                   ,
     sel             : input   logic                   ,
     controller1_btns: input   logic                <8>,
     controller2_btns: input   logic                <8>,
@@ -27,7 +28,7 @@ module controller (
             count1       = 0;
             count2       = 0;
             sel_d        = 0;
-        } else {
+        } else if !stall {
             sel_d = sel;
 
             if (strobe) {

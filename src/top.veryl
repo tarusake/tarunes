@@ -1,53 +1,212 @@
 module top #(
-    param PROM_PATH: string = "",
-    param CROM_PATH: string = "",
+    param PROM_PATH    : string = ""   ,
+    param CROM_PATH    : string = ""   ,
+    param ENABLE_APU   : bbool  = false,
+    param I2S_TEST_TONE: bbool  = false,
 ) (
-    clk             : input  clock   ,
-    rst             : input  reset   ,
-    controller1_btns: input  logic<8>,
-    controller2_btns: input  logic<8>,
-    scanline        : output logic<9>,
-    cycle           : output logic<9>,
-    pixel_r         : output logic<8>,
-    pixel_g         : output logic<8>,
-    pixel_b         : output logic<8>,
-    audio_sample    : output logic<8>,
+    clk                     : input  clock    ,
+    rst                     : input  reset    ,
+    frame_sync              : input  logic    ,
+    sfc_data                : input  logic    ,
+    sfc_latch               : output logic    ,
+    sfc_clk                 : output logic    ,
+    scanline                : output logic<9> ,
+    cycle                   : output logic<9> ,
+    pixel_index             : output logic<6> ,
+    hdmi_r                  : output logic<8> ,
+    hdmi_g                  : output logic<8> ,
+    hdmi_b                  : output logic<8> ,
+    hdmi_hsync              : output logic    ,
+    hdmi_vsync              : output logic    ,
+    hdmi_de                 : output logic    ,
+    hdmi_video_x            : output logic<10>,
+    hdmi_video_y            : output logic<10>,
+    audio_sample            : output logic<8> ,
+    i2s_bclk                : output logic    ,
+    i2s_lrck                : output logic    ,
+    i2s_dout                : output logic    ,
+    debug_cpu_pc            : output logic<16>,
+    logic_analizer          : output logic<16>,
+    debug_palette0          : output logic<8> ,
+    debug_palette1          : output logic<8> ,
+    debug_palette2          : output logic<8> ,
+    debug_palette3          : output logic<8> ,
+    debug_bg_palette_addr   : output logic<5> ,
+    debug_bg_palette_data   : output logic<8> ,
+    debug_palette_write     : output logic    ,
+    debug_palette_write_addr: output logic<5> ,
+    debug_palette_write_data: output logic<8> ,
 ) {
-    inst cpubus    : bus_if::<8, 16>;
-    inst cpu_ppubus: bus_if::<8, 3>;
-    inst apubus    : bus_if::<8, 5>;
-    inst ctrlbus   : bus_if::<8, 1>;
-    inst wrambus   : bus_if::<8, 11>;
-    inst prombus   : bus_if::<8, 15>;
-    var nmi     : logic;
-    var ctrl_sel: logic;
+    const AUDIO_SAMPLES_PER_FRAME: logic<10> = 10'd782;
+    const AUDIO_FRAME_CYCLES     : logic<17> = 17'd89342;
+
+    inst cpubus     : bus_if::<8, 16>;
+    inst cpu_ppubus : bus_if::<8, 3>;
+    inst apubus     : bus_if::<8, 5>;
+    inst ctrlbus    : bus_if::<8, 1>;
+    inst wrambus    : bus_if::<8, 11>;
+    inst prombus    : bus_if::<8, 15>;
+    inst dma_ppubus : bus_if::<8, 3>;
+    inst dma_wrambus: bus_if::<8, 11>;
+    var nmi                : logic           ;
+    var ctrl_sel           : logic           ;
+    var dma_busy           : logic           ;
+    var dma_start          : logic           ;
+    var dma_page           : logic<8>        ;
+    var cpu_halt           : logic           ;
+    var core_stall         : logic           ;
+    var apu_stall          : logic           ;
+    var ppu_frame_wait     : logic           ;
+    var audio_sample_raw   : logic<8>        ;
+    var audio_play_sample  : logic<8>        ;
+    var audio_buffer       : logic<8>  [1024];
+    var audio_wr_ptr       : logic<10>       ;
+    var audio_rd_ptr       : logic<10>       ;
+    var audio_count        : logic<11>       ;
+    var audio_write_acc    : logic<17>       ;
+    var audio_frame_samples: logic<10>       ;
+    var audio_write_pulse  : logic           ;
+    var i2s_sample_req     : logic           ;
+    var controller1_btns   : logic<8>        ;
+    var controller2_btns   : logic<8>        ;
+
+    assign core_stall        = ppu_frame_wait;
+    assign apu_stall         = audio_frame_samples == AUDIO_SAMPLES_PER_FRAME;
+    assign audio_sample      = audio_sample_raw;
+    assign controller2_btns  = 8'h00;
+    assign audio_write_pulse = !frame_sync && !apu_stall && audio_write_acc + {7'b0000000, AUDIO_SAMPLES_PER_FRAME}
+        >= AUDIO_FRAME_CYCLES;
 
     inst ppubus : bus_if::<8, 14>;
     inst vrambus: bus_if::<8, 11>;
     inst crombus: bus_if::<8, 13>;
 
-    inst cpu_inst: cpu ( clk: clk, rst: rst, nmi: nmi, cpubus: cpubus );
-
-    inst wram: memory::<8, 11> ( clk: clk, rst: rst, membus: wrambus );
-
-    inst prom: memory::<8, 15> #( PATH: PROM_PATH ) ( clk: clk, rst: rst, membus: prombus );
-
-    inst ubus_cpu: bus_cpu (
-        clk       : clk       ,
-        rst       : rst       ,
-        cpubus    : cpubus    ,
-        cpu_ppubus: cpu_ppubus,
-        apubus    : apubus    ,
-        ctrlbus   : ctrlbus   ,
-        prombus   : prombus   ,
-        wrambus   : wrambus   ,
+    inst cpu_inst: cpu (
+        clk           : clk           ,
+        rst           : rst           ,
+        stall         : core_stall    ,
+        nmi           : nmi           ,
+        halt          : cpu_halt      ,
+        debug_pc      : debug_cpu_pc  ,
+        logic_analizer: logic_analizer,
+        cpubus        : cpubus        ,
     );
 
-    inst apu_inst: apu ( clk: clk, rst: rst, cpubus: apubus, audio_sample: audio_sample );
+    inst wram: memory::<8, 11> ( clk: clk, rst: rst, stall: core_stall, membus: wrambus );
+
+    inst prom: memory::<8, 15> #( PATH: PROM_PATH ) ( clk: clk, rst: rst, stall: core_stall, membus: prombus );
+
+    inst ubus_cpu: bus_cpu (
+        clk        : clk        ,
+        rst        : rst        ,
+        stall      : core_stall ,
+        dma_busy   : dma_busy   ,
+        dma_start  : dma_start  ,
+        dma_page   : dma_page   ,
+        cpu_halt   : cpu_halt   ,
+        cpubus     : cpubus     ,
+        cpu_ppubus : cpu_ppubus ,
+        dma_ppubus : dma_ppubus ,
+        apubus     : apubus     ,
+        ctrlbus    : ctrlbus    ,
+        dma_wrambus: dma_wrambus,
+        prombus    : prombus    ,
+        wrambus    : wrambus    ,
+    );
+
+    inst oam_dma_inst: oam_dma (
+        clk       : clk        ,
+        rst       : rst        ,
+        stall     : core_stall ,
+        start     : dma_start  ,
+        page      : dma_page   ,
+        busy      : dma_busy   ,
+        wrambus   : dma_wrambus,
+        ppu_regbus: dma_ppubus ,
+    );
+
+    if (ENABLE_APU) :g_apu {
+        inst apu_inst: apu (
+            clk         : clk             ,
+            rst         : rst             ,
+            stall       : apu_stall       ,
+            bus_stall   : core_stall      ,
+            cpubus      : apubus          ,
+            audio_sample: audio_sample_raw,
+        );
+    } else :g_apu_disabled {
+        assign apubus.rdata     = 8'h00;
+        assign audio_sample_raw = 8'h80;
+    }
+
+    always_ff {
+        if_reset {
+            audio_play_sample   = 8'h80;
+            audio_wr_ptr        = 0;
+            audio_rd_ptr        = 0;
+            audio_count         = 0;
+            audio_write_acc     = 0;
+            audio_frame_samples = 0;
+        } else {
+            if (frame_sync) {
+                audio_write_acc     = 0;
+                audio_frame_samples = 0;
+            } else if (!apu_stall) {
+                if (audio_write_pulse) {
+                    audio_write_acc     = audio_write_acc + {7'b0000000, AUDIO_SAMPLES_PER_FRAME} - AUDIO_FRAME_CYCLES;
+                    audio_frame_samples = audio_frame_samples + 1;
+                } else {
+                    audio_write_acc = audio_write_acc + {7'b0000000, AUDIO_SAMPLES_PER_FRAME};
+                }
+            }
+
+            if (audio_write_pulse && audio_count != 11'd1024) {
+                audio_buffer[audio_wr_ptr] = audio_sample_raw;
+                audio_wr_ptr               = audio_wr_ptr + 1;
+                if (!(i2s_sample_req && audio_count != 0)) {
+                    audio_count = audio_count + 1;
+                }
+            }
+
+            if (i2s_sample_req) {
+                if (audio_count != 0) {
+                    audio_play_sample = audio_buffer[audio_rd_ptr];
+                    audio_rd_ptr      = audio_rd_ptr + 1;
+                    if (!audio_write_pulse) {
+                        audio_count = audio_count - 1;
+                    }
+                } else {
+                    audio_play_sample = 8'h80;
+                }
+            }
+        }
+    }
+
+    inst i2s_inst: i2s #(
+        TEST_TONE: I2S_TEST_TONE,
+    ) (
+        clk       : clk              ,
+        rst       : rst              ,
+        sample    : audio_play_sample,
+        bclk      : i2s_bclk         ,
+        lrck      : i2s_lrck         ,
+        dout      : i2s_dout         ,
+        sample_req: i2s_sample_req   ,
+    );
+
+    inst sfc_controller_inst: sfc_controller (
+        clk      : clk             ,
+        rst      : rst             ,
+        sfc_data : sfc_data        ,
+        sfc_latch: sfc_latch       ,
+        sfc_clk  : sfc_clk         ,
+        buttons  : controller1_btns,
+    );
 
     inst controller_inst: controller (
         clk             : clk             ,
         rst             : rst             ,
+        stall           : core_stall      ,
         sel             : ctrl_sel        ,
         controller1_btns: controller1_btns,
         controller2_btns: controller2_btns,
@@ -57,22 +216,54 @@ module top #(
     assign ctrl_sel = cpubus.addr == 16'h4016 || (cpubus.addr == 16'h4017 && !cpubus.wen);
 
     inst ppu_inst: ppu (
-        clk     : clk       ,
-        rst     : rst       ,
-        cpubus  : cpu_ppubus,
-        ppubus  : ppubus    ,
-        scanline: scanline  ,
-        cycle   : cycle     ,
-        pixel_r : pixel_r   ,
-        pixel_g : pixel_g   ,
-        pixel_b : pixel_b   ,
-        nmi     : nmi       ,
+        clk                     : clk                     ,
+        rst                     : rst                     ,
+        frame_sync              : frame_sync              ,
+        cpubus                  : cpu_ppubus              ,
+        ppubus                  : ppubus                  ,
+        scanline                : scanline                ,
+        cycle                   : cycle                   ,
+        pixel_index             : pixel_index             ,
+        nmi                     : nmi                     ,
+        frame_wait              : ppu_frame_wait          ,
+        debug_palette0          : debug_palette0          ,
+        debug_palette1          : debug_palette1          ,
+        debug_palette2          : debug_palette2          ,
+        debug_palette3          : debug_palette3          ,
+        debug_bg_palette_addr   : debug_bg_palette_addr   ,
+        debug_bg_palette_data   : debug_bg_palette_data   ,
+        debug_palette_write     : debug_palette_write     ,
+        debug_palette_write_addr: debug_palette_write_addr,
+        debug_palette_write_data: debug_palette_write_data,
     );
 
-    inst ubus_ppu: bus_ppu ( clk: clk, rst: rst, ppubus: ppubus, crombus: crombus, vrambus: vrambus );
+    inst hdmi_scaler: hdmi_480p_scaler (
+        clk             : clk         ,
+        rst             : rst         ,
+        core_cycle      : cycle       ,
+        core_scanline   : scanline    ,
+        core_pixel_index: pixel_index ,
+        hdmi_r          : hdmi_r      ,
+        hdmi_g          : hdmi_g      ,
+        hdmi_b          : hdmi_b      ,
+        hdmi_hsync      : hdmi_hsync  ,
+        hdmi_vsync      : hdmi_vsync  ,
+        hdmi_de         : hdmi_de     ,
+        video_x         : hdmi_video_x,
+        video_y         : hdmi_video_y,
+    );
 
-    inst vram: memory::<8, 11> ( clk: clk, rst: rst, membus: vrambus );
+    inst ubus_ppu: bus_ppu (
+        clk    : clk       ,
+        rst    : rst       ,
+        stall  : core_stall,
+        ppubus : ppubus    ,
+        crombus: crombus   ,
+        vrambus: vrambus   ,
+    );
 
-    inst crom: memory::<8, 13> #( PATH: CROM_PATH ) ( clk: clk, rst: rst, membus: crombus );
+    inst vram: memory::<8, 11> ( clk: clk, rst: rst, stall: core_stall, membus: vrambus );
+
+    inst crom: memory::<8, 13> #( PATH: CROM_PATH ) ( clk: clk, rst: rst, stall: core_stall, membus: crombus );
 
 }

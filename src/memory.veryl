@@ -3,6 +3,7 @@ module memory::<DATA_WIDTH: u32, ADDR_WIDTH: u32> #(
 ) (
     clk   : input   clock                                  ,
     rst   : input   reset                                  ,
+    stall : input   logic                                  ,
     membus: modport bus_if::<DATA_WIDTH, ADDR_WIDTH>::slave,
 ) {
     var mem: logic<DATA_WIDTH> [2 ** ADDR_WIDTH];
@@ -16,7 +17,7 @@ module memory::<DATA_WIDTH: u32, ADDR_WIDTH: u32> #(
     always_ff {
         if_reset {
             membus.rdata = 0;
-        } else {
+        } else if !stall {
             membus.rdata = mem[membus.addr];
             if membus.wen {
                 mem[membus.addr] = membus.wdata;
