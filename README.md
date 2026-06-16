@@ -31,13 +31,14 @@ tarunes/
 - [Verilator](https://www.veripool.org/verilator/) (5.0 以上)
 - [Veryl](https://github.com/veryl-lang/veryl) (0.20.1)
 - SDL2 開発パッケージ (`sdl2-config` が使えること)
+- SDL2_image 開発パッケージ (`SDL2_image.pc` が `pkg-config` で見えること)
 - GNU Make
 - C++17 に対応した GCC または Clang
 
 Ubuntu / Debian 系の例:
 
 ```bash
-sudo apt install verilator libsdl2-dev make g++
+sudo apt install verilator libsdl2-dev libsdl2-image-dev make g++
 ```
 
 ### Veryl のインストール
@@ -93,7 +94,13 @@ make run
 ```
 
 実行すると SDL2 ウィンドウに 256x240 の画面が 2 倍スケールで表示され、10 フレーム分シミュレーションします。
-同時に波形ファイル `wave.vcd` が生成されます。GTKWave などのツールで可視化できます。
+同時に CPU ログが表示され、波形ファイル `wave.vcd` と最終フレーム画像 `last_frame.png` が生成されます。`wave.vcd` は GTKWave などのツールで可視化できます。
+
+ログと `wave.vcd` 生成を止めて高速に実行する場合:
+
+```bash
+make run ARGS=fast
+```
 
 別の ROM を実行する場合:
 
@@ -106,6 +113,48 @@ make run ROM=sample
 ```bash
 make clean
 ```
+
+## Tang Nano 20K
+
+Tang Nano 20K 向けの初期持ち込み用ファイルを `tarunes_tangnano20k/` に追加しています。HDMI 480p スケーラを使い、Gowin のデバイス設定を Nano 20K (`GW2AR-LV18QN88PC8/I7`) 向けに分けています。
+
+```bash
+make tangnano20k ROM=helloworld
+```
+
+実行前に `tarunes_tangnano20k/src/tang_nano_20k.cst` のピン制約を、使用している Tang Nano 20K のボードリビジョンに合わせて埋めてください。DVI_TX 用の `clk135` は、Gowin PLL または clocking IP で `clk27` の 5 倍として供給してください。
+
+### Windows から Gowin を実行する
+
+Windows に Gowin EDA を入れている場合は、WSL 上のこのリポジトリをそのまま使って Gowin の Tcl を実行できます。Windows 側のコマンドプロンプトまたは PowerShell から実行してください。
+
+```bat
+\\wsl.localhost\Ubuntu\home\vtakaken\tarunes\scripts\gowin_from_windows.bat nano helloworld
+```
+
+Tang Mega 138K を Windows 側 Gowin でビルドする場合:
+
+```bat
+\\wsl.localhost\Ubuntu\home\vtakaken\tarunes\scripts\gowin_from_windows.bat mega helloworld
+```
+
+`gw_sh.exe` が `PATH` に無い場合は、Windows 側で `GOWIN_SH` にフルパスを設定します。
+
+```bat
+set GOWIN_SH=C:\Gowin\Gowin_V1.9.10.03_x64\IDE\bin\gw_sh.exe
+```
+
+WSL のディストリビューション名が `Ubuntu` 以外なら `WSL_DISTRO` も設定してください。
+
+## Tang Mega 138K
+
+Tang Mega 138K 向けの初期持ち込み用ファイルを `tarunes_TangMega138k/` に追加しています。Sipeed の TangMega-138K HDMI colorbar 例と同じ HDMI0 ピンを使い、27MHz クロックから 27MHz / 135MHz を生成して 720x480p の 480p スケーラを動かします。
+
+```bash
+make tangmega138k ROM=helloworld
+```
+
+現状のトップは `clk`、`rst_n`、HDMI0 の最小構成です。コントローラ入力は未接続で `0` 固定にしています。
 
 ## ROM ファイル生成
 
@@ -133,11 +182,15 @@ CHR RAM タイプの ROM は CHR ROM を含まないため、`*_chr.hex` は生�
 `src/ppu.veryl` は以下の機能を提供します。
 
 - バックグラウンドレンダリング
+- 8x8 スプライトレンダリング (`$2003` / `$2004` による OAM アクセス)
+- `$4014` OAM DMA による WRAM から OAM への転送
 - VRAM / CHR ROM アクセス制御
 - Palette RAM と NES パレットによる RGB 出力
 - 画面出力タイミング生成
 
-CPU からは `$2006` / `$2007` 相当のレジスタ経由で VRAM / Palette RAM にアクセスします。PPU のレンダリング経路は CHR ROM と VRAM を参照し、トップモジュールから `pixel_r` / `pixel_g` / `pixel_b` を出力します。
+CPU からは `$2006` / `$2007` 相当のレジスタ経由で VRAM / Palette RAM にアクセスします。スプライトは `$2003` / `$2004` 相当のレジスタで内部 OAM に書き込み、PPU のレンダリング経路で背景と合成されます。PPU のレンダリング経路は CHR ROM と VRAM を参照し、トップモジュールから `pixel_r` / `pixel_g` / `pixel_b` を出力します。
+
+現在のスプライト実装は 8x8 モード、透明色、スプライトパレット、水平/垂直反転、背景前後優先度、sprite zero hit に対応しています。`$4014` OAM DMA は WRAM (`$0000-$1FFF`) 転送元に対応していますが、実機の 513/514 サイクル差は未実装です。8x16 スプライト、sprite overflow は未実装です。
 
 ## CPU
 
@@ -162,7 +215,8 @@ CPU からは `$2006` / `$2007` 相当のレジスタ経由で VRAM / Palette RA
 CPU 側:
 
 - `$0000-$1FFF`: WRAM
-- `$2000-$2007`: PPU レジスタ
+- `$2000-$2007`: PPU レジスタ (`$2003`: OAMADDR, `$2004`: OAMDATA)
+- `$4014`: OAM DMA
 - `$8000-$FFFF`: PRG ROM
 
 PPU 側:
