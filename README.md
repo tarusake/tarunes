@@ -114,48 +114,6 @@ make run ROM=sample
 make clean
 ```
 
-## Tang Nano 20K
-
-Tang Nano 20K 向けの初期持ち込み用ファイルを `tarunes_tangnano20k/` に追加しています。HDMI 480p スケーラを使い、Gowin のデバイス設定を Nano 20K (`GW2AR-LV18QN88PC8/I7`) 向けに分けています。
-
-```bash
-make tangnano20k ROM=helloworld
-```
-
-実行前に `tarunes_tangnano20k/src/tang_nano_20k.cst` のピン制約を、使用している Tang Nano 20K のボードリビジョンに合わせて埋めてください。DVI_TX 用の `clk135` は、Gowin PLL または clocking IP で `clk27` の 5 倍として供給してください。
-
-### Windows から Gowin を実行する
-
-Windows に Gowin EDA を入れている場合は、WSL 上のこのリポジトリをそのまま使って Gowin の Tcl を実行できます。Windows 側のコマンドプロンプトまたは PowerShell から実行してください。
-
-```bat
-\\wsl.localhost\Ubuntu\home\vtakaken\tarunes\scripts\gowin_from_windows.bat nano helloworld
-```
-
-Tang Mega 138K を Windows 側 Gowin でビルドする場合:
-
-```bat
-\\wsl.localhost\Ubuntu\home\vtakaken\tarunes\scripts\gowin_from_windows.bat mega helloworld
-```
-
-`gw_sh.exe` が `PATH` に無い場合は、Windows 側で `GOWIN_SH` にフルパスを設定します。
-
-```bat
-set GOWIN_SH=C:\Gowin\Gowin_V1.9.10.03_x64\IDE\bin\gw_sh.exe
-```
-
-WSL のディストリビューション名が `Ubuntu` 以外なら `WSL_DISTRO` も設定してください。
-
-## Tang Mega 138K
-
-Tang Mega 138K 向けの初期持ち込み用ファイルを `tarunes_TangMega138k/` に追加しています。Sipeed の TangMega-138K HDMI colorbar 例と同じ HDMI0 ピンを使い、27MHz クロックから 27MHz / 135MHz を生成して 720x480p の 480p スケーラを動かします。
-
-```bash
-make tangmega138k ROM=helloworld
-```
-
-現状のトップは `clk`、`rst_n`、HDMI0 の最小構成です。コントローラ入力は未接続で `0` 固定にしています。
-
 ## ROM ファイル生成
 
 NES の ROM ファイル (`.nes`) を、シミュレーションで読み込む HEX 形式に変換できます。

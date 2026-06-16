@@ -1,5 +1,4 @@
 VERILATOR      := verilator
-GOWIN_SH       ?= gw_sh
 ROM            ?= helloworld
 ENABLE_APU     ?= 1
 NES_ROM        := $(ROM).nes
@@ -46,16 +45,7 @@ build: veryl-build rom
 run: build
 	./obj_dir/V$(TOP) $(ARGS)
 
-tangnano20k: veryl-build rom
-	ROM=$(ROM) $(GOWIN_SH) tarunes_tangnano20k/gowin_build.tcl
-
-tangprimer20k: veryl-build rom
-	ROM=$(ROM) $(GOWIN_SH) tarunes_TangPrimer20k/gowin_build.tcl
-
-tangmega138k: veryl-build rom
-	ROM=$(ROM) $(GOWIN_SH) tarunes_TangMega138k/gowin_build.tcl
-
 clean:
 	rm -rf obj_dir target *.vcd
 
-.PHONY: all build run clean veryl-fmt veryl-build rom tangnano20k tangprimer20k tangmega138k
+.PHONY: all build run clean veryl-fmt veryl-build rom
