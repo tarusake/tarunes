@@ -16,6 +16,11 @@ obj_dir/
 *.log
 *.bmp
 
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
 # Veryl Library
 core/dependencies/
 core/target/

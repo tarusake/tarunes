@@ -208,7 +208,7 @@ def matching_spec(line: str) -> LoopSpec | None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Collapse long nestest wait loops in a Mesen-style CPU trace."
+        description="Collapse long wait loops in a Mesen-style CPU trace."
     )
     parser.add_argument("input", nargs="?", type=Path, default=Path("nestest.log"))
     parser.add_argument("-o", "--output", type=Path, help="write collapsed log to this file")
