@@ -111,9 +111,9 @@ Build and run the simulator:
 make run
 ```
 
-The simulator opens an SDL2 window and displays the internal 256x240 video output at 2x scale. A normal run also prints a CPU trace and writes `wave.vcd`, which can be inspected with tools such as GTKWave.
+The simulator opens an SDL2 window and displays the internal 256x240 video output at 2x scale. A normal run also prints a CPU trace and writes `wave.fst`, which can be inspected with tools such as GTKWave.
 
-For a faster run without the CPU trace or VCD output:
+For a faster run without the CPU trace or waveform output:
 
 ```bash
 make run ARGS=--fast
@@ -139,7 +139,7 @@ make run ARGS="--fast --capture-hdmi --frames 10"
 
 Runtime options:
 
-- `--fast`: Disable CPU trace and VCD output
+- `--fast`: Disable CPU trace and waveform output
 - `--capture-hdmi`: Display and save the 720x480 HDMI output
 - `--frames N`: Stop after N completed frames
 - `--dump-audio PATH`: Set the WAV output path

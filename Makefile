@@ -4,7 +4,7 @@ ENABLE_APU     ?= 1
 NES_ROM        := $(ROM).nes
 PRG_HEX        := $(ROM)_prg.hex
 CHR_HEX        := $(ROM)_chr.hex
-VERILATOR_FLAGS := -Wall --trace --Wno-fatal -GPROM_PATH=\"$(PRG_HEX)\" -GCROM_PATH=\"$(CHR_HEX)\" -GENABLE_APU=$(ENABLE_APU)
+VERILATOR_FLAGS := -Wall --trace-fst --Wno-fatal -GPROM_PATH=\"$(PRG_HEX)\" -GCROM_PATH=\"$(CHR_HEX)\" -GENABLE_APU=$(ENABLE_APU)
 
 RTL_DIR  := target
 VERYL_PROJ:= tarunes
@@ -46,6 +46,6 @@ run: build
 	./obj_dir/V$(TOP) $(ARGS)
 
 clean:
-	rm -rf obj_dir target *.vcd
+	rm -rf obj_dir target *.vcd *.fst *.fst.hier
 
 .PHONY: all build run clean veryl-fmt veryl-build rom
