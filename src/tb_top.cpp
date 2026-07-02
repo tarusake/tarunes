@@ -2,7 +2,7 @@
 #include "Vtarunes_top___024root.h"
 #include "Vtarunes_top_tarunes___05F_bus_if___05F8___05F3.h"
 #include "verilated.h"
-#include "verilated_vcd_c.h"
+#include "verilated_fst_c.h"
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
 #include <algorithm>
@@ -693,12 +693,12 @@ int main(int argc, char** argv) {
     }
 
     Vtarunes_top* dut = new Vtarunes_top;
-    VerilatedVcdC* tfp = nullptr;
+    VerilatedFstC* tfp = nullptr;
     if (!fast_mode) {
         Verilated::traceEverOn(true);
-        tfp = new VerilatedVcdC;
+        tfp = new VerilatedFstC;
         dut->trace(tfp, 99);
-        tfp->open("wave.vcd");
+        tfp->open("wave.fst");
     }
 
     // SDL2の初期化

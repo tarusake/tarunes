@@ -116,9 +116,9 @@ make run
 ```
 
 実行すると SDL2 ウィンドウに 256x240 の画面が 2 倍スケールで表示されます。
-通常実行では CPU ログと波形ファイル `wave.vcd` を生成します。`wave.vcd` は GTKWave などのツールで可視化できます。
+通常実行では CPU ログと波形ファイル `wave.fst` を生成します。`wave.fst` は GTKWave などのツールで可視化できます。
 
-ログと `wave.vcd` 生成を止めて高速に実行する場合:
+ログと波形ファイル生成を止めて高速に実行する場合:
 
 ```bash
 make run ARGS=--fast
@@ -144,7 +144,7 @@ make run ARGS="--fast --capture-hdmi --frames 10"
 
 実行時オプション:
 
-- `--fast`: CPU トレースと VCD 出力を無効化
+- `--fast`: CPU トレースと波形ファイル出力を無効化
 - `--capture-hdmi`: SDL 表示と最終フレーム保存を 720x480 HDMI 出力に切り替え
 - `--frames N`: N フレームで終了
 - `--dump-audio PATH`: WAV 出力先を指定
