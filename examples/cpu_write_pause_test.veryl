@@ -1,0 +1,69 @@
+#[test(test_cpu_write_pause)]
+module test_cpu_write_pause {
+    inst clk: $tb::clock_gen; inst rst: $tb::reset_gen (clk);
+    var stall: logic; var nmi: logic; var halt: logic;
+    var debug_pc: logic<16>; var logic_analizer: logic<16>;
+    var m10: logic<8>; var m11: logic<8>;
+    var sta_writes: logic<4>; var rmw_writes: logic<4>;
+    var stall_count: logic<3>; var halt_count: logic<3>;
+    var stall_started: logic; var halt_started: logic;
+    inst cpubus: bus_if::<8, 16>;
+    inst dut: cpu (clk: clk, rst: rst, stall: stall, nmi: nmi, halt: halt,
+        debug_pc: debug_pc, logic_analizer: logic_analizer, cpubus: cpubus,);
+    function rom (addr: input logic<16>) -> logic<8> {
+        case (addr) {
+            16'hFFFC: return 8'h00; 16'hFFFD: return 8'h80;
+            16'h8000: return 8'hA9; 16'h8001: return 8'h5A; // LDA #$5A
+            16'h8002: return 8'h85; 16'h8003: return 8'h10; // STA $10
+            16'h8004: return 8'hE6; 16'h8005: return 8'h11; // INC $11
+            16'h8006: return 8'h4C; 16'h8007: return 8'h06; 16'h8008: return 8'h80;
+            default: return 0;
+        }
+    }
+    always_ff (clk, rst) {
+        if_reset {
+            cpubus.rdata = 0; m10 = 0; m11 = 8'h40;
+            sta_writes = 0; rmw_writes = 0;
+            stall = 0; halt = 0; stall_count = 0; halt_count = 0;
+            stall_started = 0; halt_started = 0;
+        } else {
+            case (cpubus.addr) {
+                16'h0010: { cpubus.rdata = m10; }
+                16'h0011: { cpubus.rdata = m11; }
+                default: { cpubus.rdata = rom(cpubus.addr); }
+            }
+
+            // STAのアドレス確定直後から複数クロックstallする。
+            if (!stall_started && !cpubus.wen && cpubus.addr == 16'h0010) {
+                stall = 1; stall_started = 1; stall_count = 0;
+            } else if (stall) {
+                stall_count = stall_count + 1;
+                if (stall_count == 3) { stall = 0; }
+            }
+
+            // INCのダミー書き込み直後、最終書き込み状態を複数クロックhaltする。
+            if (!halt_started && cpubus.wen && cpubus.addr == 16'h0011) {
+                halt = 1; halt_started = 1; halt_count = 0;
+            } else if (halt) {
+                halt_count = halt_count + 1;
+                if (halt_count == 3) { halt = 0; }
+            }
+
+            if (cpubus.wen) {
+                case (cpubus.addr) {
+                    16'h0010: { m10 = cpubus.wdata; sta_writes = sta_writes + 1; }
+                    16'h0011: { m11 = cpubus.wdata; rmw_writes = rmw_writes + 1; }
+                    default: {}
+                }
+                $display("Paused-write bus: stall=%b halt=%b addr=%h data=%h", stall, halt, cpubus.addr, cpubus.wdata);
+            }
+        }
+    }
+    initial {
+        nmi = 0; rst.assert(); clk.next(70);
+        $display("Paused-write summary: pc=%h sta=%d rmw=%d values=%h,%h pause=%d,%d started=%b,%b", debug_pc, sta_writes, rmw_writes, m10, m11, stall_count, halt_count, stall_started, halt_started);
+        $assert(stall_started && halt_started); $assert(stall_count == 4); $assert(halt_count == 4);
+        $assert(sta_writes == 1); $assert(rmw_writes == 2);
+        $assert(m10 == 8'h5A); $assert(m11 == 8'h41); $assert(debug_pc == 16'h8006); $finish();
+    }
+}

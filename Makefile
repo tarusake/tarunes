@@ -85,6 +85,9 @@ test-cpu-page-cross:
 test-cpu-interrupt-detail:
 	veryl test --test test_cpu_interrupt_details --no-capture
 
+test-cpu-write-pause:
+	veryl test --test test_cpu_write_pause --no-capture
+
 test-bus-ppu:
 	veryl test --test test_bus_ppu_decode --no-capture
 
@@ -129,4 +132,4 @@ run: build
 clean:
 	rm -rf obj_dir target *.vcd *.fst *.fst.hier
 
-.PHONY: all build run clean veryl-fmt veryl-build test test-controller test-oam-dma test-bus-cpu test-cpu test-cpu-alu test-cpu-addressing test-cpu-branch test-cpu-stack test-cpu-interrupt test-cpu-rmw test-cpu-jmp-indirect test-cpu-pause test-cpu-acc-shift test-cpu-register test-cpu-bit test-cpu-store test-cpu-zp-wrap test-cpu-page-cross test-cpu-interrupt-detail test-bus-ppu test-memory test-i2s test-sfc-controller test-hdmi-scaler test-apu test-apu-pulse rom
+.PHONY: all build run clean veryl-fmt veryl-build test test-controller test-oam-dma test-bus-cpu test-cpu test-cpu-alu test-cpu-addressing test-cpu-branch test-cpu-stack test-cpu-interrupt test-cpu-rmw test-cpu-jmp-indirect test-cpu-pause test-cpu-acc-shift test-cpu-register test-cpu-bit test-cpu-store test-cpu-zp-wrap test-cpu-page-cross test-cpu-interrupt-detail test-cpu-write-pause test-bus-ppu test-memory test-i2s test-sfc-controller test-hdmi-scaler test-apu test-apu-pulse rom

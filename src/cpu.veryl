@@ -590,6 +590,11 @@ module cpu (
                 cpubus.addr = {8'h01, reg_sp + 8'd1};
             }
         }
+
+        // CPU状態を保持している間は、同じ書き込みサイクルを再発行しない。
+        if (stall || halt) {
+            cpubus.wen = 0;
+        }
     }
 
     always_ff {
