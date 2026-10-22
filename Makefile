@@ -1,15 +1,21 @@
 VERILATOR      := verilator
 ROM            ?= helloworld
 ENABLE_APU     ?= 1
+OPT_FAST       ?= -O3
+JOBS           ?= $(shell nproc)
 NES_ROM        := $(ROM).nes
 PRG_HEX        := $(ROM)_prg.hex
 CHR_HEX        := $(ROM)_chr.hex
 VERILATOR_FLAGS := -Wall --trace-fst --Wno-fatal -GPROM_PATH=\"$(PRG_HEX)\" -GCROM_PATH=\"$(CHR_HEX)\" -GENABLE_APU=$(ENABLE_APU)
+VERILATOR_FAST_FLAGS := -O3 --x-assign fast --x-initial fast --no-assert
+VERILATOR_COMPILE_FLAGS := --output-split 20000 --output-split-cfuncs 20000
 
 RTL_DIR  := target
 VERYL_PROJ:= tarunes
 TB_CPP := src/tb_top.cpp
 TOP    := $(VERYL_PROJ)_top
+VERYL_SOURCES := $(wildcard src/*.veryl) Veryl.toml Veryl.lock
+VERYL_STAMP := $(RTL_DIR)/.veryl-build.stamp
 
 SDL_CFLAGS := $(shell sdl2-config --cflags)
 SDL_LDFLAGS := $(shell sdl2-config --libs)
@@ -21,9 +27,12 @@ all: build
 veryl-fmt:
 	veryl fmt
 
-veryl-build: veryl-fmt
+veryl-build: $(VERYL_STAMP)
+
+$(VERYL_STAMP): $(VERYL_SOURCES)
 	veryl build
 	perl -0pi -e 's/\)\s*;\n    typedef struct packed/\) \/\*synthesis syn_ramstyle="registers"\*\/ ;\n    typedef struct packed/' target/ppu.sv
+	touch $@
 
 test:
 	veryl test
@@ -115,7 +124,7 @@ $(PRG_HEX) $(CHR_HEX): $(NES_ROM) nes2hex.py
 	./nes2hex.py $(NES_ROM)
 
 build: veryl-build rom
-	$(VERILATOR) $(VERILATOR_FLAGS) \
+	$(VERILATOR) $(VERILATOR_FLAGS) $(VERILATOR_COMPILE_FLAGS) \
 		--cc \
 		-f $(VERYL_PROJ).f \
 		--top-module $(TOP) \
@@ -124,12 +133,28 @@ build: veryl-build rom
 		-CFLAGS "-std=c++17 $(SDL_CFLAGS) $(SDL_IMAGE_CFLAGS)" \
 		-LDFLAGS "$(SDL_LDFLAGS) $(SDL_IMAGE_LDFLAGS)"
 
-	make -C obj_dir -f V$(TOP).mk
+	$(MAKE) -j$(JOBS) -C obj_dir -f V$(TOP).mk OPT_FAST="$(OPT_FAST)"
 
 run: build
 	./obj_dir/V$(TOP) $(ARGS)
 
-clean:
-	rm -rf obj_dir target *.vcd *.fst *.fst.hier
+fast-build: veryl-build rom
+	$(VERILATOR) $(filter-out --trace-fst,$(VERILATOR_FLAGS)) $(VERILATOR_FAST_FLAGS) $(VERILATOR_COMPILE_FLAGS) \
+		--cc \
+		--Mdir obj_dir_fast \
+		-f $(VERYL_PROJ).f \
+		--top-module $(TOP) \
+		--exe $(TB_CPP) \
+		-I$(RTL_DIR) \
+		-CFLAGS "-std=c++17 $(SDL_CFLAGS) $(SDL_IMAGE_CFLAGS)" \
+		-LDFLAGS "$(SDL_LDFLAGS) $(SDL_IMAGE_LDFLAGS)"
 
-.PHONY: all build run clean veryl-fmt veryl-build test test-controller test-oam-dma test-bus-cpu test-cpu test-cpu-alu test-cpu-addressing test-cpu-branch test-cpu-stack test-cpu-interrupt test-cpu-rmw test-cpu-jmp-indirect test-cpu-pause test-cpu-acc-shift test-cpu-register test-cpu-bit test-cpu-store test-cpu-zp-wrap test-cpu-page-cross test-cpu-interrupt-detail test-cpu-write-pause test-bus-ppu test-memory test-i2s test-sfc-controller test-hdmi-scaler test-apu test-apu-pulse rom
+	$(MAKE) -j$(JOBS) -C obj_dir_fast -f V$(TOP).mk OPT_FAST="$(OPT_FAST)"
+
+run-fast: fast-build
+	./obj_dir_fast/V$(TOP) --fast $(ARGS)
+
+clean:
+	rm -rf obj_dir obj_dir_fast target *.vcd *.fst *.fst.hier
+
+.PHONY: all build run fast-build run-fast clean veryl-fmt veryl-build test test-controller test-oam-dma test-bus-cpu test-cpu test-cpu-alu test-cpu-addressing test-cpu-branch test-cpu-stack test-cpu-interrupt test-cpu-rmw test-cpu-jmp-indirect test-cpu-pause test-cpu-acc-shift test-cpu-register test-cpu-bit test-cpu-store test-cpu-zp-wrap test-cpu-page-cross test-cpu-interrupt-detail test-cpu-write-pause test-bus-ppu test-memory test-i2s test-sfc-controller test-hdmi-scaler test-apu test-apu-pulse rom

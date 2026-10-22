@@ -142,12 +142,13 @@ make run ARGS="--fast --frames 10"
 HDMI 480p 出力側をキャプチャする場合:
 
 ```bash
-make run ARGS="--fast --capture-hdmi --frames 10"
+make run-fast ARGS="--capture-hdmi --frames 10"
 ```
 
 実行時オプション:
 
 - `--fast`: CPU トレースと波形ファイル出力を無効化
+- `--audio`: APU 音声を SDL 音声デバイスでリアルタイム再生
 - `--capture-hdmi`: SDL 表示と最終フレーム保存を 720x480 HDMI 出力に切り替え
 - `--frames N`: N フレームで終了
 - `--dump-audio PATH`: WAV 出力先を指定
