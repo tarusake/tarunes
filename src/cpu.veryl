@@ -8,6 +8,9 @@ module cpu (
     logic_analizer: output  logic                  <16>,
     cpubus        : modport bus_if::<8, 16>::master    ,
 ) {
+    import cpu_pkg::*;
+    import nes_pkg::*;
+
     // CPU Registers
     var reg_a : logic<8> ; // Accumulator
     var reg_x : logic<8> ; // X register
@@ -16,253 +19,18 @@ module cpu (
     var reg_pc: logic<16>; // Program counter
     var reg_p : logic<8> ; // Status Register
 
-    var op1             : logic<8> ;
-    var op2             : logic<8> ;
-    var ptr_addr        : logic<8> ;
-    var eff_addr        : logic<16>;
-    var return_addr     : logic<16>;
-    var interrupt_vector: logic<16>;
-    var interrupt_status: logic<8> ;
-    var inst_len        : logic<16>;
-    var nmi_d           : logic    ;
-    var nmi_pending     : logic    ;
-
-    enum inst_t {
-        INVALID,
-        BRK,
-        RTI,
-        PHA,
-        PLA,
-        PHP,
-        PLP,
-        SEI,
-        SEC,
-        CLI,
-        CLD,
-        CLC,
-        SED,
-        CLV,
-        NOP,
-        TXS,
-        TSX,
-        TAX,
-        TXA,
-        TAY,
-        TYA,
-        INX,
-        INY,
-        INC,
-        DEC,
-        ASL,
-        LSR,
-        ROL,
-        ROR,
-        DEX,
-        DEY,
-        LDA,
-        LDX,
-        LDY,
-        CPX,
-        CPY,
-        CMP,
-        ADC,
-        SBC,
-        ORA,
-        AND,
-        EOR,
-        STA,
-        STX,
-        STY,
-        BIT,
-        BCC,
-        BCS,
-        BNE,
-        BEQ,
-        BPL,
-        BMI,
-        BVC,
-        BVS,
-        JMP,
-        JSR,
-        RTS,
-    }
-    var decoded_inst: inst_t;
-
-    enum addr_mode_t {
-        IMPLIED,
-        IMM,
-        ZP,
-        ZPX,
-        ZPY,
-        ABS,
-        ABSX,
-        ABSY,
-        IND,
-        INDX,
-        INDY,
-        REL,
-    }
-    var addr_mode: addr_mode_t;
-
-    struct decode_entry_t {
-        opcode   : logic      <8> ,
-        inst_kind: inst_t         ,
-        mode     : addr_mode_t    ,
-        len      : logic      <16>,
-    }
-    const DECODE_TABLE: decode_entry_t [151] = '{
-        decode_entry_t'{opcode: 8'h00, inst_kind: inst_t::BRK, mode: addr_mode_t::IMPLIED, len: 2,},
-        decode_entry_t'{opcode: 8'h40, inst_kind: inst_t::RTI, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'h48, inst_kind: inst_t::PHA, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'h68, inst_kind: inst_t::PLA, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'h08, inst_kind: inst_t::PHP, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'h28, inst_kind: inst_t::PLP, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'h78, inst_kind: inst_t::SEI, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'h38, inst_kind: inst_t::SEC, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'h58, inst_kind: inst_t::CLI, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'hD8, inst_kind: inst_t::CLD, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'h18, inst_kind: inst_t::CLC, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'hF8, inst_kind: inst_t::SED, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'hB8, inst_kind: inst_t::CLV, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'hEA, inst_kind: inst_t::NOP, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'h9A, inst_kind: inst_t::TXS, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'hBA, inst_kind: inst_t::TSX, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'hAA, inst_kind: inst_t::TAX, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'h8A, inst_kind: inst_t::TXA, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'hA8, inst_kind: inst_t::TAY, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'h98, inst_kind: inst_t::TYA, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'hE8, inst_kind: inst_t::INX, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'hC8, inst_kind: inst_t::INY, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'hE6, inst_kind: inst_t::INC, mode: addr_mode_t::ZP, len: 2,},
-        decode_entry_t'{opcode: 8'hF6, inst_kind: inst_t::INC, mode: addr_mode_t::ZPX, len: 2,},
-        decode_entry_t'{opcode: 8'hEE, inst_kind: inst_t::INC, mode: addr_mode_t::ABS, len: 3,},
-        decode_entry_t'{opcode: 8'hFE, inst_kind: inst_t::INC, mode: addr_mode_t::ABSX, len: 3,},
-        decode_entry_t'{opcode: 8'hC6, inst_kind: inst_t::DEC, mode: addr_mode_t::ZP, len: 2,},
-        decode_entry_t'{opcode: 8'hD6, inst_kind: inst_t::DEC, mode: addr_mode_t::ZPX, len: 2,},
-        decode_entry_t'{opcode: 8'hCE, inst_kind: inst_t::DEC, mode: addr_mode_t::ABS, len: 3,},
-        decode_entry_t'{opcode: 8'hDE, inst_kind: inst_t::DEC, mode: addr_mode_t::ABSX, len: 3,},
-        decode_entry_t'{opcode: 8'h0A, inst_kind: inst_t::ASL, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'h06, inst_kind: inst_t::ASL, mode: addr_mode_t::ZP, len: 2,},
-        decode_entry_t'{opcode: 8'h16, inst_kind: inst_t::ASL, mode: addr_mode_t::ZPX, len: 2,},
-        decode_entry_t'{opcode: 8'h0E, inst_kind: inst_t::ASL, mode: addr_mode_t::ABS, len: 3,},
-        decode_entry_t'{opcode: 8'h1E, inst_kind: inst_t::ASL, mode: addr_mode_t::ABSX, len: 3,},
-        decode_entry_t'{opcode: 8'h4A, inst_kind: inst_t::LSR, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'h46, inst_kind: inst_t::LSR, mode: addr_mode_t::ZP, len: 2,},
-        decode_entry_t'{opcode: 8'h56, inst_kind: inst_t::LSR, mode: addr_mode_t::ZPX, len: 2,},
-        decode_entry_t'{opcode: 8'h4E, inst_kind: inst_t::LSR, mode: addr_mode_t::ABS, len: 3,},
-        decode_entry_t'{opcode: 8'h5E, inst_kind: inst_t::LSR, mode: addr_mode_t::ABSX, len: 3,},
-        decode_entry_t'{opcode: 8'h2A, inst_kind: inst_t::ROL, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'h26, inst_kind: inst_t::ROL, mode: addr_mode_t::ZP, len: 2,},
-        decode_entry_t'{opcode: 8'h36, inst_kind: inst_t::ROL, mode: addr_mode_t::ZPX, len: 2,},
-        decode_entry_t'{opcode: 8'h2E, inst_kind: inst_t::ROL, mode: addr_mode_t::ABS, len: 3,},
-        decode_entry_t'{opcode: 8'h3E, inst_kind: inst_t::ROL, mode: addr_mode_t::ABSX, len: 3,},
-        decode_entry_t'{opcode: 8'h6A, inst_kind: inst_t::ROR, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'h66, inst_kind: inst_t::ROR, mode: addr_mode_t::ZP, len: 2,},
-        decode_entry_t'{opcode: 8'h76, inst_kind: inst_t::ROR, mode: addr_mode_t::ZPX, len: 2,},
-        decode_entry_t'{opcode: 8'h6E, inst_kind: inst_t::ROR, mode: addr_mode_t::ABS, len: 3,},
-        decode_entry_t'{opcode: 8'h7E, inst_kind: inst_t::ROR, mode: addr_mode_t::ABSX, len: 3,},
-        decode_entry_t'{opcode: 8'hCA, inst_kind: inst_t::DEX, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'h88, inst_kind: inst_t::DEY, mode: addr_mode_t::IMPLIED, len: 1,},
-        decode_entry_t'{opcode: 8'hA9, inst_kind: inst_t::LDA, mode: addr_mode_t::IMM, len: 2,},
-        decode_entry_t'{opcode: 8'hA5, inst_kind: inst_t::LDA, mode: addr_mode_t::ZP, len: 2,},
-        decode_entry_t'{opcode: 8'hB5, inst_kind: inst_t::LDA, mode: addr_mode_t::ZPX, len: 2,},
-        decode_entry_t'{opcode: 8'hAD, inst_kind: inst_t::LDA, mode: addr_mode_t::ABS, len: 3,},
-        decode_entry_t'{opcode: 8'hBD, inst_kind: inst_t::LDA, mode: addr_mode_t::ABSX, len: 3,},
-        decode_entry_t'{opcode: 8'hB9, inst_kind: inst_t::LDA, mode: addr_mode_t::ABSY, len: 3,},
-        decode_entry_t'{opcode: 8'hA1, inst_kind: inst_t::LDA, mode: addr_mode_t::INDX, len: 2,},
-        decode_entry_t'{opcode: 8'hB1, inst_kind: inst_t::LDA, mode: addr_mode_t::INDY, len: 2,},
-        decode_entry_t'{opcode: 8'hA2, inst_kind: inst_t::LDX, mode: addr_mode_t::IMM, len: 2,},
-        decode_entry_t'{opcode: 8'hA6, inst_kind: inst_t::LDX, mode: addr_mode_t::ZP, len: 2,},
-        decode_entry_t'{opcode: 8'hB6, inst_kind: inst_t::LDX, mode: addr_mode_t::ZPY, len: 2,},
-        decode_entry_t'{opcode: 8'hAE, inst_kind: inst_t::LDX, mode: addr_mode_t::ABS, len: 3,},
-        decode_entry_t'{opcode: 8'hBE, inst_kind: inst_t::LDX, mode: addr_mode_t::ABSY, len: 3,},
-        decode_entry_t'{opcode: 8'hA0, inst_kind: inst_t::LDY, mode: addr_mode_t::IMM, len: 2,},
-        decode_entry_t'{opcode: 8'hA4, inst_kind: inst_t::LDY, mode: addr_mode_t::ZP, len: 2,},
-        decode_entry_t'{opcode: 8'hB4, inst_kind: inst_t::LDY, mode: addr_mode_t::ZPX, len: 2,},
-        decode_entry_t'{opcode: 8'hAC, inst_kind: inst_t::LDY, mode: addr_mode_t::ABS, len: 3,},
-        decode_entry_t'{opcode: 8'hBC, inst_kind: inst_t::LDY, mode: addr_mode_t::ABSX, len: 3,},
-        decode_entry_t'{opcode: 8'hE0, inst_kind: inst_t::CPX, mode: addr_mode_t::IMM, len: 2,},
-        decode_entry_t'{opcode: 8'hE4, inst_kind: inst_t::CPX, mode: addr_mode_t::ZP, len: 2,},
-        decode_entry_t'{opcode: 8'hEC, inst_kind: inst_t::CPX, mode: addr_mode_t::ABS, len: 3,},
-        decode_entry_t'{opcode: 8'hC0, inst_kind: inst_t::CPY, mode: addr_mode_t::IMM, len: 2,},
-        decode_entry_t'{opcode: 8'hC4, inst_kind: inst_t::CPY, mode: addr_mode_t::ZP, len: 2,},
-        decode_entry_t'{opcode: 8'hCC, inst_kind: inst_t::CPY, mode: addr_mode_t::ABS, len: 3,},
-        decode_entry_t'{opcode: 8'hC9, inst_kind: inst_t::CMP, mode: addr_mode_t::IMM, len: 2,},
-        decode_entry_t'{opcode: 8'hC5, inst_kind: inst_t::CMP, mode: addr_mode_t::ZP, len: 2,},
-        decode_entry_t'{opcode: 8'hD5, inst_kind: inst_t::CMP, mode: addr_mode_t::ZPX, len: 2,},
-        decode_entry_t'{opcode: 8'hCD, inst_kind: inst_t::CMP, mode: addr_mode_t::ABS, len: 3,},
-        decode_entry_t'{opcode: 8'hDD, inst_kind: inst_t::CMP, mode: addr_mode_t::ABSX, len: 3,},
-        decode_entry_t'{opcode: 8'hD9, inst_kind: inst_t::CMP, mode: addr_mode_t::ABSY, len: 3,},
-        decode_entry_t'{opcode: 8'hC1, inst_kind: inst_t::CMP, mode: addr_mode_t::INDX, len: 2,},
-        decode_entry_t'{opcode: 8'hD1, inst_kind: inst_t::CMP, mode: addr_mode_t::INDY, len: 2,},
-        decode_entry_t'{opcode: 8'h69, inst_kind: inst_t::ADC, mode: addr_mode_t::IMM, len: 2,},
-        decode_entry_t'{opcode: 8'h65, inst_kind: inst_t::ADC, mode: addr_mode_t::ZP, len: 2,},
-        decode_entry_t'{opcode: 8'h75, inst_kind: inst_t::ADC, mode: addr_mode_t::ZPX, len: 2,},
-        decode_entry_t'{opcode: 8'h6D, inst_kind: inst_t::ADC, mode: addr_mode_t::ABS, len: 3,},
-        decode_entry_t'{opcode: 8'h7D, inst_kind: inst_t::ADC, mode: addr_mode_t::ABSX, len: 3,},
-        decode_entry_t'{opcode: 8'h79, inst_kind: inst_t::ADC, mode: addr_mode_t::ABSY, len: 3,},
-        decode_entry_t'{opcode: 8'h61, inst_kind: inst_t::ADC, mode: addr_mode_t::INDX, len: 2,},
-        decode_entry_t'{opcode: 8'h71, inst_kind: inst_t::ADC, mode: addr_mode_t::INDY, len: 2,},
-        decode_entry_t'{opcode: 8'hE9, inst_kind: inst_t::SBC, mode: addr_mode_t::IMM, len: 2,},
-        decode_entry_t'{opcode: 8'hE5, inst_kind: inst_t::SBC, mode: addr_mode_t::ZP, len: 2,},
-        decode_entry_t'{opcode: 8'hF5, inst_kind: inst_t::SBC, mode: addr_mode_t::ZPX, len: 2,},
-        decode_entry_t'{opcode: 8'hED, inst_kind: inst_t::SBC, mode: addr_mode_t::ABS, len: 3,},
-        decode_entry_t'{opcode: 8'hFD, inst_kind: inst_t::SBC, mode: addr_mode_t::ABSX, len: 3,},
-        decode_entry_t'{opcode: 8'hF9, inst_kind: inst_t::SBC, mode: addr_mode_t::ABSY, len: 3,},
-        decode_entry_t'{opcode: 8'hE1, inst_kind: inst_t::SBC, mode: addr_mode_t::INDX, len: 2,},
-        decode_entry_t'{opcode: 8'hF1, inst_kind: inst_t::SBC, mode: addr_mode_t::INDY, len: 2,},
-        decode_entry_t'{opcode: 8'h09, inst_kind: inst_t::ORA, mode: addr_mode_t::IMM, len: 2,},
-        decode_entry_t'{opcode: 8'h05, inst_kind: inst_t::ORA, mode: addr_mode_t::ZP, len: 2,},
-        decode_entry_t'{opcode: 8'h15, inst_kind: inst_t::ORA, mode: addr_mode_t::ZPX, len: 2,},
-        decode_entry_t'{opcode: 8'h0D, inst_kind: inst_t::ORA, mode: addr_mode_t::ABS, len: 3,},
-        decode_entry_t'{opcode: 8'h1D, inst_kind: inst_t::ORA, mode: addr_mode_t::ABSX, len: 3,},
-        decode_entry_t'{opcode: 8'h19, inst_kind: inst_t::ORA, mode: addr_mode_t::ABSY, len: 3,},
-        decode_entry_t'{opcode: 8'h01, inst_kind: inst_t::ORA, mode: addr_mode_t::INDX, len: 2,},
-        decode_entry_t'{opcode: 8'h11, inst_kind: inst_t::ORA, mode: addr_mode_t::INDY, len: 2,},
-        decode_entry_t'{opcode: 8'h29, inst_kind: inst_t::AND, mode: addr_mode_t::IMM, len: 2,},
-        decode_entry_t'{opcode: 8'h25, inst_kind: inst_t::AND, mode: addr_mode_t::ZP, len: 2,},
-        decode_entry_t'{opcode: 8'h35, inst_kind: inst_t::AND, mode: addr_mode_t::ZPX, len: 2,},
-        decode_entry_t'{opcode: 8'h2D, inst_kind: inst_t::AND, mode: addr_mode_t::ABS, len: 3,},
-        decode_entry_t'{opcode: 8'h3D, inst_kind: inst_t::AND, mode: addr_mode_t::ABSX, len: 3,},
-        decode_entry_t'{opcode: 8'h39, inst_kind: inst_t::AND, mode: addr_mode_t::ABSY, len: 3,},
-        decode_entry_t'{opcode: 8'h21, inst_kind: inst_t::AND, mode: addr_mode_t::INDX, len: 2,},
-        decode_entry_t'{opcode: 8'h31, inst_kind: inst_t::AND, mode: addr_mode_t::INDY, len: 2,},
-        decode_entry_t'{opcode: 8'h49, inst_kind: inst_t::EOR, mode: addr_mode_t::IMM, len: 2,},
-        decode_entry_t'{opcode: 8'h45, inst_kind: inst_t::EOR, mode: addr_mode_t::ZP, len: 2,},
-        decode_entry_t'{opcode: 8'h55, inst_kind: inst_t::EOR, mode: addr_mode_t::ZPX, len: 2,},
-        decode_entry_t'{opcode: 8'h4D, inst_kind: inst_t::EOR, mode: addr_mode_t::ABS, len: 3,},
-        decode_entry_t'{opcode: 8'h5D, inst_kind: inst_t::EOR, mode: addr_mode_t::ABSX, len: 3,},
-        decode_entry_t'{opcode: 8'h59, inst_kind: inst_t::EOR, mode: addr_mode_t::ABSY, len: 3,},
-        decode_entry_t'{opcode: 8'h41, inst_kind: inst_t::EOR, mode: addr_mode_t::INDX, len: 2,},
-        decode_entry_t'{opcode: 8'h51, inst_kind: inst_t::EOR, mode: addr_mode_t::INDY, len: 2,},
-        decode_entry_t'{opcode: 8'h24, inst_kind: inst_t::BIT, mode: addr_mode_t::ZP, len: 2,},
-        decode_entry_t'{opcode: 8'h2C, inst_kind: inst_t::BIT, mode: addr_mode_t::ABS, len: 3,},
-        decode_entry_t'{opcode: 8'h85, inst_kind: inst_t::STA, mode: addr_mode_t::ZP, len: 2,},
-        decode_entry_t'{opcode: 8'h95, inst_kind: inst_t::STA, mode: addr_mode_t::ZPX, len: 2,},
-        decode_entry_t'{opcode: 8'h8D, inst_kind: inst_t::STA, mode: addr_mode_t::ABS, len: 3,},
-        decode_entry_t'{opcode: 8'h9D, inst_kind: inst_t::STA, mode: addr_mode_t::ABSX, len: 3,},
-        decode_entry_t'{opcode: 8'h99, inst_kind: inst_t::STA, mode: addr_mode_t::ABSY, len: 3,},
-        decode_entry_t'{opcode: 8'h81, inst_kind: inst_t::STA, mode: addr_mode_t::INDX, len: 2,},
-        decode_entry_t'{opcode: 8'h91, inst_kind: inst_t::STA, mode: addr_mode_t::INDY, len: 2,},
-        decode_entry_t'{opcode: 8'h86, inst_kind: inst_t::STX, mode: addr_mode_t::ZP, len: 2,},
-        decode_entry_t'{opcode: 8'h96, inst_kind: inst_t::STX, mode: addr_mode_t::ZPY, len: 2,},
-        decode_entry_t'{opcode: 8'h8E, inst_kind: inst_t::STX, mode: addr_mode_t::ABS, len: 3,},
-        decode_entry_t'{opcode: 8'h84, inst_kind: inst_t::STY, mode: addr_mode_t::ZP, len: 2,},
-        decode_entry_t'{opcode: 8'h94, inst_kind: inst_t::STY, mode: addr_mode_t::ZPX, len: 2,},
-        decode_entry_t'{opcode: 8'h8C, inst_kind: inst_t::STY, mode: addr_mode_t::ABS, len: 3,},
-        decode_entry_t'{opcode: 8'h90, inst_kind: inst_t::BCC, mode: addr_mode_t::REL, len: 2,},
-        decode_entry_t'{opcode: 8'hB0, inst_kind: inst_t::BCS, mode: addr_mode_t::REL, len: 2,},
-        decode_entry_t'{opcode: 8'hD0, inst_kind: inst_t::BNE, mode: addr_mode_t::REL, len: 2,},
-        decode_entry_t'{opcode: 8'hF0, inst_kind: inst_t::BEQ, mode: addr_mode_t::REL, len: 2,},
-        decode_entry_t'{opcode: 8'h10, inst_kind: inst_t::BPL, mode: addr_mode_t::REL, len: 2,},
-        decode_entry_t'{opcode: 8'h30, inst_kind: inst_t::BMI, mode: addr_mode_t::REL, len: 2,},
-        decode_entry_t'{opcode: 8'h50, inst_kind: inst_t::BVC, mode: addr_mode_t::REL, len: 2,},
-        decode_entry_t'{opcode: 8'h70, inst_kind: inst_t::BVS, mode: addr_mode_t::REL, len: 2,},
-        decode_entry_t'{opcode: 8'h4C, inst_kind: inst_t::JMP, mode: addr_mode_t::ABS, len: 3,},
-        decode_entry_t'{opcode: 8'h6C, inst_kind: inst_t::JMP, mode: addr_mode_t::IND, len: 3,},
-        decode_entry_t'{opcode: 8'h20, inst_kind: inst_t::JSR, mode: addr_mode_t::ABS, len: 3,},
-        decode_entry_t'{opcode: 8'h60, inst_kind: inst_t::RTS, mode: addr_mode_t::IMPLIED, len: 1,},
-    };
+    var op1             : logic      <8> ;
+    var op2             : logic      <8> ;
+    var ptr_addr        : logic      <8> ;
+    var eff_addr        : logic      <16>;
+    var return_addr     : logic      <16>;
+    var interrupt_vector: logic      <16>;
+    var interrupt_status: logic      <8> ;
+    var inst_len        : logic      <16>;
+    var nmi_d           : logic          ;
+    var nmi_pending     : logic          ;
+    var decoded_inst    : inst_t         ;
+    var addr_mode       : addr_mode_t    ;
 
     enum cpu_state_t {
         RESET0,
@@ -324,40 +92,6 @@ module cpu (
         }
     }
 
-    function invalid_decode_entry (
-        raw_opcode: input logic<8>,
-    ) -> decode_entry_t {
-        var ret          : decode_entry_t;
-        ret.opcode    = raw_opcode;
-        ret.inst_kind = inst_t::INVALID;
-        ret.mode      = addr_mode_t::IMPLIED;
-        ret.len       = 1;
-        return ret;
-    }
-
-    function decode_opcode (
-        raw_opcode: input logic<8>,
-    ) -> decode_entry_t {
-        for i in 0..$size(DECODE_TABLE) {
-            if (DECODE_TABLE[i].opcode == raw_opcode) {
-                return DECODE_TABLE[i];
-            }
-        }
-        return invalid_decode_entry(raw_opcode);
-    }
-
-    function is_store_inst (
-        inst_kind: input inst_t,
-    ) -> logic {
-        return inst_kind == inst_t::STA || inst_kind == inst_t::STX || inst_kind == inst_t::STY;
-    }
-
-    function high_byte (
-        value: input logic<16>,
-    ) -> logic<8> {
-        return value[15:8];
-    }
-
     let _state_debug: logic<64> = debug_cpu_state_str(state);
     assign debug_pc       = reg_pc;
     assign logic_analizer = {!stall && !halt && state == cpu_state_t::DECODE, reg_pc[6:0], cpubus.rdata,};
@@ -369,10 +103,10 @@ module cpu (
 
         case (state) {
             cpu_state_t::RESET0: {
-                cpubus.addr = 16'hFFFC;
+                cpubus.addr = RESET_VECTOR;
             }
             cpu_state_t::RESET1: {
-                cpubus.addr = 16'hFFFD;
+                cpubus.addr = RESET_VECTOR + 1;
             }
             cpu_state_t::FETCH: {
                 cpubus.addr = reg_pc;
@@ -644,7 +378,7 @@ module cpu (
                         if (nmi_pending) {
                             nmi_pending      = 0;
                             return_addr      = reg_pc;
-                            interrupt_vector = 16'hFFFA;
+                            interrupt_vector = NMI_VECTOR;
                             interrupt_status = reg_p & 8'hEF | 8'h20;
                             reg_sp           = reg_sp - 1;
                             state            = cpu_state_t::INT_PUSH_LO;
@@ -665,7 +399,7 @@ module cpu (
                                         inst_t::BRK: {
                                             let brk_return_addr : logic<16> = reg_pc + decode_entry.len;
                                             return_addr      = brk_return_addr;
-                                            interrupt_vector = 16'hFFFE;
+                                            interrupt_vector = IRQ_VECTOR;
                                             interrupt_status = reg_p | 8'h10;
                                             reg_sp           = reg_sp - 1;
                                             state            = cpu_state_t::INT_PUSH_LO;
@@ -698,45 +432,45 @@ module cpu (
                                         // IRQフラグ無効
                                         // NMIはIフラグに関係なく受け付ける
                                         inst_t::SEI: {
-                                            reg_p[2] = 1'b1;
-                                            state    = cpu_state_t::FETCH;
-                                            reg_pc   = reg_pc + decode_entry.len;
+                                            reg_p[FLAG_INTERRUPT] = 1'b1;
+                                            state                 = cpu_state_t::FETCH;
+                                            reg_pc                = reg_pc + decode_entry.len;
                                         }
 
                                         inst_t::SEC: {
-                                            reg_p[0] = 1'b1;
-                                            state    = cpu_state_t::FETCH;
-                                            reg_pc   = reg_pc + decode_entry.len;
+                                            reg_p[FLAG_CARRY] = 1'b1;
+                                            state             = cpu_state_t::FETCH;
+                                            reg_pc            = reg_pc + decode_entry.len;
                                         }
 
                                         inst_t::CLI: {
-                                            reg_p[2] = 1'b0;
-                                            state    = cpu_state_t::FETCH;
-                                            reg_pc   = reg_pc + decode_entry.len;
+                                            reg_p[FLAG_INTERRUPT] = 1'b0;
+                                            state                 = cpu_state_t::FETCH;
+                                            reg_pc                = reg_pc + decode_entry.len;
                                         }
 
                                         inst_t::CLD: {
-                                            reg_p[3] = 1'b0;
-                                            state    = cpu_state_t::FETCH;
-                                            reg_pc   = reg_pc + decode_entry.len;
+                                            reg_p[FLAG_DECIMAL] = 1'b0;
+                                            state               = cpu_state_t::FETCH;
+                                            reg_pc              = reg_pc + decode_entry.len;
                                         }
 
                                         inst_t::CLC: {
-                                            reg_p[0] = 1'b0;
-                                            state    = cpu_state_t::FETCH;
-                                            reg_pc   = reg_pc + decode_entry.len;
+                                            reg_p[FLAG_CARRY] = 1'b0;
+                                            state             = cpu_state_t::FETCH;
+                                            reg_pc            = reg_pc + decode_entry.len;
                                         }
 
                                         inst_t::SED: {
-                                            reg_p[3] = 1'b1;
-                                            state    = cpu_state_t::FETCH;
-                                            reg_pc   = reg_pc + decode_entry.len;
+                                            reg_p[FLAG_DECIMAL] = 1'b1;
+                                            state               = cpu_state_t::FETCH;
+                                            reg_pc              = reg_pc + decode_entry.len;
                                         }
 
                                         inst_t::CLV: {
-                                            reg_p[6] = 1'b0;
-                                            state    = cpu_state_t::FETCH;
-                                            reg_pc   = reg_pc + decode_entry.len;
+                                            reg_p[FLAG_OVERFLOW] = 1'b0;
+                                            state                = cpu_state_t::FETCH;
+                                            reg_pc               = reg_pc + decode_entry.len;
                                         }
 
                                         inst_t::NOP: {
@@ -752,119 +486,119 @@ module cpu (
                                         }
 
                                         inst_t::TSX: {
-                                            reg_x    = reg_sp;
-                                            reg_p[1] = (reg_sp == 0);
-                                            reg_p[7] = reg_sp[7];
-                                            state    = cpu_state_t::FETCH;
-                                            reg_pc   = reg_pc + decode_entry.len;
+                                            reg_x                = reg_sp;
+                                            reg_p[FLAG_ZERO]     = (reg_sp == 0);
+                                            reg_p[FLAG_NEGATIVE] = reg_sp[7];
+                                            state                = cpu_state_t::FETCH;
+                                            reg_pc               = reg_pc + decode_entry.len;
                                         }
 
                                         inst_t::TAX: {
-                                            reg_x    = reg_a;
-                                            reg_p[1] = (reg_a == 0);
-                                            reg_p[7] = reg_a[7];
-                                            state    = cpu_state_t::FETCH;
-                                            reg_pc   = reg_pc + decode_entry.len;
+                                            reg_x                = reg_a;
+                                            reg_p[FLAG_ZERO]     = (reg_a == 0);
+                                            reg_p[FLAG_NEGATIVE] = reg_a[7];
+                                            state                = cpu_state_t::FETCH;
+                                            reg_pc               = reg_pc + decode_entry.len;
                                         }
 
                                         inst_t::TXA: {
-                                            reg_a    = reg_x;
-                                            reg_p[1] = (reg_x == 0);
-                                            reg_p[7] = reg_x[7];
-                                            state    = cpu_state_t::FETCH;
-                                            reg_pc   = reg_pc + decode_entry.len;
+                                            reg_a                = reg_x;
+                                            reg_p[FLAG_ZERO]     = (reg_x == 0);
+                                            reg_p[FLAG_NEGATIVE] = reg_x[7];
+                                            state                = cpu_state_t::FETCH;
+                                            reg_pc               = reg_pc + decode_entry.len;
                                         }
 
                                         inst_t::TAY: {
-                                            reg_y    = reg_a;
-                                            reg_p[1] = (reg_a == 0);
-                                            reg_p[7] = reg_a[7];
-                                            state    = cpu_state_t::FETCH;
-                                            reg_pc   = reg_pc + decode_entry.len;
+                                            reg_y                = reg_a;
+                                            reg_p[FLAG_ZERO]     = (reg_a == 0);
+                                            reg_p[FLAG_NEGATIVE] = reg_a[7];
+                                            state                = cpu_state_t::FETCH;
+                                            reg_pc               = reg_pc + decode_entry.len;
                                         }
 
                                         inst_t::TYA: {
-                                            reg_a    = reg_y;
-                                            reg_p[1] = (reg_y == 0);
-                                            reg_p[7] = reg_y[7];
-                                            state    = cpu_state_t::FETCH;
-                                            reg_pc   = reg_pc + decode_entry.len;
+                                            reg_a                = reg_y;
+                                            reg_p[FLAG_ZERO]     = (reg_y == 0);
+                                            reg_p[FLAG_NEGATIVE] = reg_y[7];
+                                            state                = cpu_state_t::FETCH;
+                                            reg_pc               = reg_pc + decode_entry.len;
                                         }
 
                                         inst_t::ASL: {
-                                            let result  : logic<8> = reg_a << 1;
-                                            reg_p[0] = reg_a[7];
-                                            reg_p[1] = (result == 0);
-                                            reg_p[7] = result[7];
-                                            reg_a    = result;
-                                            state    = cpu_state_t::FETCH;
-                                            reg_pc   = reg_pc + decode_entry.len;
+                                            let result              : logic<8> = reg_a << 1;
+                                            reg_p[FLAG_CARRY]    = reg_a[7];
+                                            reg_p[FLAG_ZERO]     = (result == 0);
+                                            reg_p[FLAG_NEGATIVE] = result[7];
+                                            reg_a                = result;
+                                            state                = cpu_state_t::FETCH;
+                                            reg_pc               = reg_pc + decode_entry.len;
                                         }
 
                                         inst_t::LSR: {
-                                            let result  : logic<8> = reg_a >> 1;
-                                            reg_p[0] = reg_a[0];
-                                            reg_p[1] = (result == 0);
-                                            reg_p[7] = 1'b0;
-                                            reg_a    = result;
-                                            state    = cpu_state_t::FETCH;
-                                            reg_pc   = reg_pc + decode_entry.len;
+                                            let result              : logic<8> = reg_a >> 1;
+                                            reg_p[FLAG_CARRY]    = reg_a[0];
+                                            reg_p[FLAG_ZERO]     = (result == 0);
+                                            reg_p[FLAG_NEGATIVE] = 1'b0;
+                                            reg_a                = result;
+                                            state                = cpu_state_t::FETCH;
+                                            reg_pc               = reg_pc + decode_entry.len;
                                         }
 
                                         inst_t::ROL: {
-                                            let result  : logic<8> = {reg_a[6:0], reg_p[0]};
-                                            reg_p[0] = reg_a[7];
-                                            reg_p[1] = (result == 0);
-                                            reg_p[7] = result[7];
-                                            reg_a    = result;
-                                            state    = cpu_state_t::FETCH;
-                                            reg_pc   = reg_pc + decode_entry.len;
+                                            let result              : logic<8> = {reg_a[6:0], reg_p[FLAG_CARRY]};
+                                            reg_p[FLAG_CARRY]    = reg_a[7];
+                                            reg_p[FLAG_ZERO]     = (result == 0);
+                                            reg_p[FLAG_NEGATIVE] = result[7];
+                                            reg_a                = result;
+                                            state                = cpu_state_t::FETCH;
+                                            reg_pc               = reg_pc + decode_entry.len;
                                         }
 
                                         inst_t::ROR: {
-                                            let result  : logic<8> = {reg_p[0], reg_a[7:1]};
-                                            reg_p[0] = reg_a[0];
-                                            reg_p[1] = (result == 0);
-                                            reg_p[7] = result[7];
-                                            reg_a    = result;
-                                            state    = cpu_state_t::FETCH;
-                                            reg_pc   = reg_pc + decode_entry.len;
+                                            let result              : logic<8> = {reg_p[FLAG_CARRY], reg_a[7:1]};
+                                            reg_p[FLAG_CARRY]    = reg_a[0];
+                                            reg_p[FLAG_ZERO]     = (result == 0);
+                                            reg_p[FLAG_NEGATIVE] = result[7];
+                                            reg_a                = result;
+                                            state                = cpu_state_t::FETCH;
+                                            reg_pc               = reg_pc + decode_entry.len;
                                         }
 
                                         inst_t::INX: {
-                                            let result  : logic<8> = reg_x + 1;
-                                            reg_x    = result;
-                                            reg_p[1] = (result == 0);
-                                            reg_p[7] = result[7];
-                                            state    = cpu_state_t::FETCH;
-                                            reg_pc   = reg_pc + decode_entry.len;
+                                            let result              : logic<8> = reg_x + 1;
+                                            reg_x                = result;
+                                            reg_p[FLAG_ZERO]     = (result == 0);
+                                            reg_p[FLAG_NEGATIVE] = result[7];
+                                            state                = cpu_state_t::FETCH;
+                                            reg_pc               = reg_pc + decode_entry.len;
                                         }
 
                                         inst_t::INY: {
-                                            let result  : logic<8> = reg_y + 1;
-                                            reg_y    = result;
-                                            reg_p[1] = (result == 0);
-                                            reg_p[7] = result[7];
-                                            state    = cpu_state_t::FETCH;
-                                            reg_pc   = reg_pc + decode_entry.len;
+                                            let result              : logic<8> = reg_y + 1;
+                                            reg_y                = result;
+                                            reg_p[FLAG_ZERO]     = (result == 0);
+                                            reg_p[FLAG_NEGATIVE] = result[7];
+                                            state                = cpu_state_t::FETCH;
+                                            reg_pc               = reg_pc + decode_entry.len;
                                         }
 
                                         inst_t::DEX: {
-                                            let result  : logic<8> = reg_x - 1;
-                                            reg_x    = result;
-                                            reg_p[1] = (result == 0);
-                                            reg_p[7] = result[7];
-                                            state    = cpu_state_t::FETCH;
-                                            reg_pc   = reg_pc + decode_entry.len;
+                                            let result              : logic<8> = reg_x - 1;
+                                            reg_x                = result;
+                                            reg_p[FLAG_ZERO]     = (result == 0);
+                                            reg_p[FLAG_NEGATIVE] = result[7];
+                                            state                = cpu_state_t::FETCH;
+                                            reg_pc               = reg_pc + decode_entry.len;
                                         }
 
                                         inst_t::DEY: {
-                                            let result  : logic<8> = reg_y - 1;
-                                            reg_y    = result;
-                                            reg_p[1] = (result == 0);
-                                            reg_p[7] = result[7];
-                                            state    = cpu_state_t::FETCH;
-                                            reg_pc   = reg_pc + decode_entry.len;
+                                            let result              : logic<8> = reg_y - 1;
+                                            reg_y                = result;
+                                            reg_p[FLAG_ZERO]     = (result == 0);
+                                            reg_p[FLAG_NEGATIVE] = result[7];
+                                            state                = cpu_state_t::FETCH;
+                                            reg_pc               = reg_pc + decode_entry.len;
                                         }
 
                                         inst_t::RTS: {
@@ -1019,7 +753,7 @@ module cpu (
                         case (decoded_inst) {
                             // C=0なら分岐する
                             inst_t::BCC: {
-                                if (reg_p[0] == 0) {
+                                if (reg_p[FLAG_CARRY] == 0) {
                                     reg_pc = reg_pc + 16'd2 + branch_offset;
                                 } else {
                                     reg_pc = reg_pc + 2;
@@ -1029,7 +763,7 @@ module cpu (
 
                             // C=1なら分岐する
                             inst_t::BCS: {
-                                if (reg_p[0] == 1) {
+                                if (reg_p[FLAG_CARRY] == 1) {
                                     reg_pc = reg_pc + 16'd2 + branch_offset;
                                 } else {
                                     reg_pc = reg_pc + 2;
@@ -1039,7 +773,7 @@ module cpu (
 
                             // Z=0なら分岐する
                             inst_t::BNE: {
-                                if (reg_p[1] == 0) {
+                                if (reg_p[FLAG_ZERO] == 0) {
                                     reg_pc = reg_pc + 16'd2 + branch_offset;
                                 } else {
                                     reg_pc = reg_pc + 2;
@@ -1049,7 +783,7 @@ module cpu (
 
                             // Z=1なら分岐する
                             inst_t::BEQ: {
-                                if (reg_p[1] == 1) {
+                                if (reg_p[FLAG_ZERO] == 1) {
                                     reg_pc = reg_pc + 16'd2 + branch_offset;
                                 } else {
                                     reg_pc = reg_pc + 2;
@@ -1059,7 +793,7 @@ module cpu (
 
                             // N=0なら分岐する
                             inst_t::BPL: {
-                                if (reg_p[7] == 0) {
+                                if (reg_p[FLAG_NEGATIVE] == 0) {
                                     reg_pc = reg_pc + 16'd2 + branch_offset;
                                 } else {
                                     reg_pc = reg_pc + 2;
@@ -1069,7 +803,7 @@ module cpu (
 
                             // N=1なら分岐する
                             inst_t::BMI: {
-                                if (reg_p[7] == 1) {
+                                if (reg_p[FLAG_NEGATIVE] == 1) {
                                     reg_pc = reg_pc + 16'd2 + branch_offset;
                                 } else {
                                     reg_pc = reg_pc + 2;
@@ -1079,7 +813,7 @@ module cpu (
 
                             // V=0なら分岐する
                             inst_t::BVC: {
-                                if (reg_p[6] == 0) {
+                                if (reg_p[FLAG_OVERFLOW] == 0) {
                                     reg_pc = reg_pc + 16'd2 + branch_offset;
                                 } else {
                                     reg_pc = reg_pc + 2;
@@ -1089,7 +823,7 @@ module cpu (
 
                             // V=1なら分岐する
                             inst_t::BVS: {
-                                if (reg_p[6] == 1) {
+                                if (reg_p[FLAG_OVERFLOW] == 1) {
                                     reg_pc = reg_pc + 16'd2 + branch_offset;
                                 } else {
                                     reg_pc = reg_pc + 2;
@@ -1116,161 +850,163 @@ module cpu (
                             }
 
                             inst_t::PLA: {
-                                reg_a    = exec_data;
-                                reg_p[1] = (exec_data == 0);
-                                reg_p[7] = exec_data[7];
-                                reg_sp   = reg_sp + 1;
-                                reg_pc   = reg_pc + inst_len;
-                                state    = cpu_state_t::FETCH;
+                                reg_a                = exec_data;
+                                reg_p[FLAG_ZERO]     = (exec_data == 0);
+                                reg_p[FLAG_NEGATIVE] = exec_data[7];
+                                reg_sp               = reg_sp + 1;
+                                reg_pc               = reg_pc + inst_len;
+                                state                = cpu_state_t::FETCH;
                             }
 
                             inst_t::LDA: {
-                                reg_a    = exec_data;
-                                reg_p[1] = (exec_data == 0);
-                                reg_p[7] = exec_data[7];
-                                reg_pc   = reg_pc + inst_len;
-                                state    = cpu_state_t::FETCH;
+                                reg_a                = exec_data;
+                                reg_p[FLAG_ZERO]     = (exec_data == 0);
+                                reg_p[FLAG_NEGATIVE] = exec_data[7];
+                                reg_pc               = reg_pc + inst_len;
+                                state                = cpu_state_t::FETCH;
                             }
                             inst_t::LDX: {
-                                reg_x    = exec_data;
-                                reg_p[1] = (exec_data == 0);
-                                reg_p[7] = exec_data[7];
-                                reg_pc   = reg_pc + inst_len;
-                                state    = cpu_state_t::FETCH;
+                                reg_x                = exec_data;
+                                reg_p[FLAG_ZERO]     = (exec_data == 0);
+                                reg_p[FLAG_NEGATIVE] = exec_data[7];
+                                reg_pc               = reg_pc + inst_len;
+                                state                = cpu_state_t::FETCH;
                             }
                             inst_t::LDY: {
-                                reg_y    = exec_data;
-                                reg_p[1] = (exec_data == 0);
-                                reg_p[7] = exec_data[7];
-                                reg_pc   = reg_pc + inst_len;
-                                state    = cpu_state_t::FETCH;
+                                reg_y                = exec_data;
+                                reg_p[FLAG_ZERO]     = (exec_data == 0);
+                                reg_p[FLAG_NEGATIVE] = exec_data[7];
+                                reg_pc               = reg_pc + inst_len;
+                                state                = cpu_state_t::FETCH;
                             }
                             inst_t::CPX: {
-                                let result  : logic<8> = reg_x - exec_data;
-                                reg_p[0] = (reg_x >= exec_data);
-                                reg_p[1] = (result == 0);
-                                reg_p[7] = result[7];
-                                reg_pc   = reg_pc + inst_len;
-                                state    = cpu_state_t::FETCH;
+                                let result              : logic<8> = reg_x - exec_data;
+                                reg_p[FLAG_CARRY]    = (reg_x >= exec_data);
+                                reg_p[FLAG_ZERO]     = (result == 0);
+                                reg_p[FLAG_NEGATIVE] = result[7];
+                                reg_pc               = reg_pc + inst_len;
+                                state                = cpu_state_t::FETCH;
                             }
                             inst_t::CPY: {
-                                let result  : logic<8> = reg_y - exec_data;
-                                reg_p[0] = (reg_y >= exec_data);
-                                reg_p[1] = (result == 0);
-                                reg_p[7] = result[7];
-                                reg_pc   = reg_pc + inst_len;
-                                state    = cpu_state_t::FETCH;
+                                let result              : logic<8> = reg_y - exec_data;
+                                reg_p[FLAG_CARRY]    = (reg_y >= exec_data);
+                                reg_p[FLAG_ZERO]     = (result == 0);
+                                reg_p[FLAG_NEGATIVE] = result[7];
+                                reg_pc               = reg_pc + inst_len;
+                                state                = cpu_state_t::FETCH;
                             }
                             inst_t::CMP: {
-                                let result  : logic<8> = reg_a - exec_data;
-                                reg_p[0] = (reg_a >= exec_data);
-                                reg_p[1] = (result == 0);
-                                reg_p[7] = result[7];
-                                reg_pc   = reg_pc + inst_len;
-                                state    = cpu_state_t::FETCH;
+                                let result              : logic<8> = reg_a - exec_data;
+                                reg_p[FLAG_CARRY]    = (reg_a >= exec_data);
+                                reg_p[FLAG_ZERO]     = (result == 0);
+                                reg_p[FLAG_NEGATIVE] = result[7];
+                                reg_pc               = reg_pc + inst_len;
+                                state                = cpu_state_t::FETCH;
                             }
                             inst_t::ADC: {
-                                let old_a   : logic<8> = reg_a;
-                                let sum     : logic<9> = {1'b0, old_a} + {1'b0, exec_data} + {8'h00, reg_p[0]};
-                                let result  : logic<8> = sum[7:0];
-                                reg_a    = result;
-                                reg_p[0] = sum[8];
-                                reg_p[1] = (result == 0);
-                                reg_p[6] = ((old_a ^ result) & (exec_data ^ result) & 8'h80) != 0;
-                                reg_p[7] = result[7];
-                                reg_pc   = reg_pc + inst_len;
-                                state    = cpu_state_t::FETCH;
+                                let old_a               : logic<8> = reg_a;
+                                let sum                 : logic<9> = {1'b0, old_a} + {1'b0, exec_data}
+                                    + {8'h00, reg_p[FLAG_CARRY]};
+                                let result              : logic<8> = sum[7:0];
+                                reg_a                = result;
+                                reg_p[FLAG_CARRY]    = sum[8];
+                                reg_p[FLAG_ZERO]     = (result == 0);
+                                reg_p[FLAG_OVERFLOW] = ((old_a ^ result) & (exec_data ^ result) & 8'h80) != 0;
+                                reg_p[FLAG_NEGATIVE] = result[7];
+                                reg_pc               = reg_pc + inst_len;
+                                state                = cpu_state_t::FETCH;
                             }
                             inst_t::SBC: {
-                                let old_a   : logic<8> = reg_a;
-                                let inv_mem : logic<8> = ~exec_data;
-                                let sum     : logic<9> = {1'b0, old_a} + {1'b0, inv_mem} + {8'h00, reg_p[0]};
-                                let result  : logic<8> = sum[7:0];
-                                reg_a    = result;
-                                reg_p[0] = sum[8];
-                                reg_p[1] = (result == 0);
-                                reg_p[6] = ((old_a ^ result) & (inv_mem ^ result) & 8'h80) != 0;
-                                reg_p[7] = result[7];
-                                reg_pc   = reg_pc + inst_len;
-                                state    = cpu_state_t::FETCH;
+                                let old_a               : logic<8> = reg_a;
+                                let inv_mem             : logic<8> = ~exec_data;
+                                let sum                 : logic<9> = {1'b0, old_a} + {1'b0, inv_mem}
+                                    + {8'h00, reg_p[FLAG_CARRY]};
+                                let result              : logic<8> = sum[7:0];
+                                reg_a                = result;
+                                reg_p[FLAG_CARRY]    = sum[8];
+                                reg_p[FLAG_ZERO]     = (result == 0);
+                                reg_p[FLAG_OVERFLOW] = ((old_a ^ result) & (inv_mem ^ result) & 8'h80) != 0;
+                                reg_p[FLAG_NEGATIVE] = result[7];
+                                reg_pc               = reg_pc + inst_len;
+                                state                = cpu_state_t::FETCH;
                             }
                             inst_t::ORA: {
-                                let result  : logic<8> = reg_a | exec_data;
-                                reg_a    = result;
-                                reg_p[1] = (result == 0);
-                                reg_p[7] = result[7];
-                                reg_pc   = reg_pc + inst_len;
-                                state    = cpu_state_t::FETCH;
+                                let result              : logic<8> = reg_a | exec_data;
+                                reg_a                = result;
+                                reg_p[FLAG_ZERO]     = (result == 0);
+                                reg_p[FLAG_NEGATIVE] = result[7];
+                                reg_pc               = reg_pc + inst_len;
+                                state                = cpu_state_t::FETCH;
                             }
                             inst_t::INC: {
-                                let result  : logic<8> = exec_data + 1;
-                                op2      = result;
-                                reg_p[1] = (result == 0);
-                                reg_p[7] = result[7];
-                                state    = cpu_state_t::RMW_WRITE;
+                                let result              : logic<8> = exec_data + 1;
+                                op2                  = result;
+                                reg_p[FLAG_ZERO]     = (result == 0);
+                                reg_p[FLAG_NEGATIVE] = result[7];
+                                state                = cpu_state_t::RMW_WRITE;
                             }
                             inst_t::DEC: {
-                                let result  : logic<8> = exec_data - 1;
-                                op2      = result;
-                                reg_p[1] = (result == 0);
-                                reg_p[7] = result[7];
-                                state    = cpu_state_t::RMW_WRITE;
+                                let result              : logic<8> = exec_data - 1;
+                                op2                  = result;
+                                reg_p[FLAG_ZERO]     = (result == 0);
+                                reg_p[FLAG_NEGATIVE] = result[7];
+                                state                = cpu_state_t::RMW_WRITE;
                             }
                             inst_t::ASL: {
-                                let result  : logic<8> = exec_data << 1;
-                                op2      = result;
-                                reg_p[0] = exec_data[7];
-                                reg_p[1] = (result == 0);
-                                reg_p[7] = result[7];
-                                state    = cpu_state_t::RMW_WRITE;
+                                let result              : logic<8> = exec_data << 1;
+                                op2                  = result;
+                                reg_p[FLAG_CARRY]    = exec_data[7];
+                                reg_p[FLAG_ZERO]     = (result == 0);
+                                reg_p[FLAG_NEGATIVE] = result[7];
+                                state                = cpu_state_t::RMW_WRITE;
                             }
                             inst_t::LSR: {
-                                let result  : logic<8> = exec_data >> 1;
-                                op2      = result;
-                                reg_p[0] = exec_data[0];
-                                reg_p[1] = (result == 0);
-                                reg_p[7] = 1'b0;
-                                state    = cpu_state_t::RMW_WRITE;
+                                let result              : logic<8> = exec_data >> 1;
+                                op2                  = result;
+                                reg_p[FLAG_CARRY]    = exec_data[0];
+                                reg_p[FLAG_ZERO]     = (result == 0);
+                                reg_p[FLAG_NEGATIVE] = 1'b0;
+                                state                = cpu_state_t::RMW_WRITE;
                             }
                             inst_t::ROL: {
-                                let result  : logic<8> = {exec_data[6:0], reg_p[0]};
-                                op2      = result;
-                                reg_p[0] = exec_data[7];
-                                reg_p[1] = (result == 0);
-                                reg_p[7] = result[7];
-                                state    = cpu_state_t::RMW_WRITE;
+                                let result              : logic<8> = {exec_data[6:0], reg_p[FLAG_CARRY]};
+                                op2                  = result;
+                                reg_p[FLAG_CARRY]    = exec_data[7];
+                                reg_p[FLAG_ZERO]     = (result == 0);
+                                reg_p[FLAG_NEGATIVE] = result[7];
+                                state                = cpu_state_t::RMW_WRITE;
                             }
                             inst_t::ROR: {
-                                let result  : logic<8> = {reg_p[0], exec_data[7:1]};
-                                op2      = result;
-                                reg_p[0] = exec_data[0];
-                                reg_p[1] = (result == 0);
-                                reg_p[7] = result[7];
-                                state    = cpu_state_t::RMW_WRITE;
+                                let result              : logic<8> = {reg_p[FLAG_CARRY], exec_data[7:1]};
+                                op2                  = result;
+                                reg_p[FLAG_CARRY]    = exec_data[0];
+                                reg_p[FLAG_ZERO]     = (result == 0);
+                                reg_p[FLAG_NEGATIVE] = result[7];
+                                state                = cpu_state_t::RMW_WRITE;
                             }
                             inst_t::AND: {
-                                let result  : logic<8> = reg_a & exec_data;
-                                reg_a    = result;
-                                reg_p[1] = (result == 0);
-                                reg_p[7] = result[7];
-                                reg_pc   = reg_pc + inst_len;
-                                state    = cpu_state_t::FETCH;
+                                let result              : logic<8> = reg_a & exec_data;
+                                reg_a                = result;
+                                reg_p[FLAG_ZERO]     = (result == 0);
+                                reg_p[FLAG_NEGATIVE] = result[7];
+                                reg_pc               = reg_pc + inst_len;
+                                state                = cpu_state_t::FETCH;
                             }
                             inst_t::EOR: {
-                                let result  : logic<8> = reg_a ^ exec_data;
-                                reg_a    = result;
-                                reg_p[1] = (result == 0);
-                                reg_p[7] = result[7];
-                                reg_pc   = reg_pc + inst_len;
-                                state    = cpu_state_t::FETCH;
+                                let result              : logic<8> = reg_a ^ exec_data;
+                                reg_a                = result;
+                                reg_p[FLAG_ZERO]     = (result == 0);
+                                reg_p[FLAG_NEGATIVE] = result[7];
+                                reg_pc               = reg_pc + inst_len;
+                                state                = cpu_state_t::FETCH;
                             }
                             inst_t::BIT: {
-                                let result  : logic<8> = reg_a & exec_data;
-                                reg_p[1] = (result == 0);
-                                reg_p[6] = exec_data[6];
-                                reg_p[7] = exec_data[7];
-                                reg_pc   = reg_pc + inst_len;
-                                state    = cpu_state_t::FETCH;
+                                let result              : logic<8> = reg_a & exec_data;
+                                reg_p[FLAG_ZERO]     = (result == 0);
+                                reg_p[FLAG_OVERFLOW] = exec_data[6];
+                                reg_p[FLAG_NEGATIVE] = exec_data[7];
+                                reg_pc               = reg_pc + inst_len;
+                                state                = cpu_state_t::FETCH;
                             }
                             inst_t::STA: {
                                 reg_pc = reg_pc + inst_len;
@@ -1298,9 +1034,9 @@ module cpu (
                         state  = cpu_state_t::INT_PUSH_P;
                     }
                     cpu_state_t::INT_PUSH_P: {
-                        reg_sp   = reg_sp - 1;
-                        reg_p[2] = 1'b1;
-                        state    = cpu_state_t::INT_VECTOR_LO;
+                        reg_sp                = reg_sp - 1;
+                        reg_p[FLAG_INTERRUPT] = 1'b1;
+                        state                 = cpu_state_t::INT_VECTOR_LO;
                     }
                     cpu_state_t::INT_VECTOR_LO: {
                         state = cpu_state_t::INT_VECTOR_LO_WAIT;

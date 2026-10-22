@@ -1,0 +1,23 @@
+/// NES-wide CPU address map and timing constants.
+package nes_pkg {
+    const CPU_RAM_END     : logic<16> = 16'h1FFF;
+    const PPU_REG_BASE    : logic<16> = 16'h2000;
+    const PPU_REG_END     : logic<16> = 16'h2007;
+    const APU_REG_BASE    : logic<16> = 16'h4000;
+    const OAM_DMA_ADDR    : logic<16> = 16'h4014;
+    const APU_STATUS_ADDR : logic<16> = 16'h4015;
+    const CONTROLLER1_ADDR: logic<16> = 16'h4016;
+    const CONTROLLER2_ADDR: logic<16> = 16'h4017;
+    const PRG_ROM_BASE    : logic<16> = 16'h8000;
+    const NMI_VECTOR      : logic<16> = 16'hFFFA;
+    const RESET_VECTOR    : logic<16> = 16'hFFFC;
+    const IRQ_VECTOR      : logic<16> = 16'hFFFE;
+
+    const VISIBLE_SCANLINES  : logic<9> = 9'd240;
+    const VBLANK_SCANLINE    : logic<9> = 9'd241;
+    const PRE_RENDER_SCANLINE: logic<9> = 9'd261;
+    const LAST_PPU_CYCLE     : logic<9> = 9'd340;
+
+    const AUDIO_SAMPLES_PER_FRAME: logic<10> = 10'd782;
+    const AUDIO_FRAME_CYCLES     : logic<17> = 17'd89342;
+}
