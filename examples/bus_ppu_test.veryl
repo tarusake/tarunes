@@ -1,0 +1,64 @@
+#[test(test_bus_ppu_decode)]
+module test_bus_ppu_decode {
+    inst clk: $tb::clock_gen;
+    inst rst: $tb::reset_gen ( clk );
+
+    var stall: logic;
+
+    inst ppubus : bus_if::<8, 14>;
+    inst crombus: bus_if::<8, 13>;
+    inst vrambus: bus_if::<8, 11>;
+
+    inst dut: bus_ppu (
+        clk    : clk    ,
+        rst    : rst    ,
+        stall  : stall  ,
+        ppubus : ppubus ,
+        crombus: crombus,
+        vrambus: vrambus,
+    );
+
+    initial {
+        stall         = 0;
+        ppubus.addr   = 0;
+        ppubus.wen    = 0;
+        ppubus.wdata  = 0;
+        crombus.rdata = 8'hC1;
+        vrambus.rdata = 8'hD2;
+
+        rst.assert();
+
+        ppubus.addr = 14'h1FFF;
+        clk.next();
+        $display("PPU bus CHR: addr=%h mapped=%h data=%h", ppubus.addr, crombus.addr, ppubus.rdata);
+        $assert(crombus.addr == 13'h1FFF);
+        $assert(crombus.wen == 0);
+        $assert(ppubus.rdata == 8'hC1);
+
+        ppubus.addr  = 14'h2ABC;
+        ppubus.wen   = 1;
+        ppubus.wdata = 8'h5A;
+        clk.next();
+        $display("PPU bus VRAM mirror: addr=%h mapped=%h data=%h", ppubus.addr, vrambus.addr, vrambus.wdata);
+        $assert(vrambus.addr == 11'h2BC);
+        $assert(vrambus.wen);
+        $assert(vrambus.wdata == 8'h5A);
+
+        ppubus.wen  = 0;
+        ppubus.addr = 14'h3EFF;
+        clk.next();
+        $assert(vrambus.addr == 11'h6FF);
+        $assert(ppubus.rdata == 8'hD2);
+
+        // Palette space is handled by the PPU itself, not external VRAM.
+        ppubus.addr = 14'h3F00;
+        clk.next();
+        $display("PPU bus palette: addr=%h external_data=%h", ppubus.addr, ppubus.rdata);
+        $assert(crombus.addr == 0);
+        $assert(vrambus.addr == 0);
+        $assert(!vrambus.wen);
+        $assert(ppubus.rdata == 0);
+
+        $finish();
+    }
+}

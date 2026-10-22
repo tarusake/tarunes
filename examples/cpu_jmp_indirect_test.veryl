@@ -1,0 +1,80 @@
+#[test(test_cpu_jmp_indirect_wrap)]
+module test_cpu_jmp_indirect_wrap {
+    inst clk: $tb::clock_gen;
+    inst rst: $tb::reset_gen ( clk );
+    var stall          : logic    ;
+    var nmi            : logic    ;
+    var halt           : logic    ;
+    var debug_pc       : logic<16>;
+    var logic_analizer : logic<16>;
+    var wrapped_read   : logic    ;
+    var wrong_page_read: logic    ;
+    var target_seen    : logic    ;
+    inst cpubus: bus_if::<8, 16>;
+    inst dut: cpu (
+        clk           : clk           ,
+        rst           : rst           ,
+        stall         : stall         ,
+        nmi           : nmi           ,
+        halt          : halt          ,
+        debug_pc      : debug_pc      ,
+        logic_analizer: logic_analizer,
+        cpubus        : cpubus        ,
+    );
+    function mem_data (
+        addr: input logic<16>,
+    ) -> logic<8> {
+        case (addr) {
+            16'hFFFC: return 8'h00;
+            16'hFFFD: return 8'h80;
+            16'h8000: return 8'h6C;
+            16'h8001: return 8'hFF;
+            16'h8002: return 8'h10; // JMP ($10FF)
+            16'h10FF: return 8'h34;
+            16'h1000: return 8'h12;
+            16'h1100: return 8'h56;
+            16'h1234: return 8'hA9;
+            16'h1235: return 8'hA5;
+            16'h1236: return 8'h85;
+            16'h1237: return 8'h10;
+            16'h1238: return 8'h4C;
+            16'h1239: return 8'h38;
+            16'h123A: return 8'h12;
+            default : return 0;
+        }
+    }
+    always_ff (clk, rst) {
+        if_reset {
+            cpubus.rdata    = 0;
+            wrapped_read    = 0;
+            wrong_page_read = 0;
+            target_seen     = 0;
+        } else {
+            cpubus.rdata = mem_data(cpubus.addr);
+            if (!cpubus.wen && cpubus.addr == 16'h1000) {
+                wrapped_read = 1;
+                $display("JMP indirect high-byte read=%h", cpubus.addr);
+            }
+            if (!cpubus.wen && cpubus.addr == 16'h1100) {
+                wrong_page_read = 1;
+            }
+            if (cpubus.wen && cpubus.addr == 16'h0010) {
+                target_seen = cpubus.wdata == 8'hA5;
+                $display("JMP indirect target result=%h", cpubus.wdata);
+            }
+        }
+    }
+    initial {
+        stall = 0;
+        nmi   = 0;
+        halt  = 0;
+        rst.assert();
+        clk.next(100);
+        $display("JMP indirect summary: pc=%h wrapped=%b wrong_page=%b", debug_pc, wrapped_read, wrong_page_read);
+        $assert(wrapped_read);
+        $assert(!wrong_page_read);
+        $assert(target_seen);
+        $assert(debug_pc == 16'h1238);
+        $finish();
+    }
+}

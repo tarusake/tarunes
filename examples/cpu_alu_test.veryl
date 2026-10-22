@@ -1,0 +1,302 @@
+#[test(test_cpu_alu_and_flags)]
+module test_cpu_alu_and_flags {
+    inst clk: $tb::clock_gen;
+    inst rst: $tb::reset_gen ( clk );
+
+    var stall         : logic    ;
+    var nmi           : logic    ;
+    var halt          : logic    ;
+    var debug_pc      : logic<16>;
+    var logic_analizer: logic<16>;
+    var result_count  : logic<4> ;
+    var flag_count    : logic<4> ;
+
+    inst cpubus: bus_if::<8, 16>;
+
+    inst dut: cpu (
+        clk           : clk           ,
+        rst           : rst           ,
+        stall         : stall         ,
+        nmi           : nmi           ,
+        halt          : halt          ,
+        debug_pc      : debug_pc      ,
+        logic_analizer: logic_analizer,
+        cpubus        : cpubus        ,
+    );
+
+    function program_data (
+        addr: input logic<16>,
+    ) -> logic<8> {
+        case (addr) {
+            16'hFFFC: {
+                return 8'h00;
+            }
+            16'hFFFD: {
+                return 8'h80;
+            }
+
+            16'h8000: {
+                return 8'h18;
+            } // CLC
+            16'h8001: {
+                return 8'hA9;
+            } // LDA #$7F
+            16'h8002: {
+                return 8'h7F;
+            }
+            16'h8003: {
+                return 8'h69;
+            } // ADC #$01 -> $80, N=1 V=1
+            16'h8004: {
+                return 8'h01;
+            }
+            16'h8005: {
+                return 8'h85;
+            } // STA $10
+            16'h8006: {
+                return 8'h10;
+            }
+            16'h8007: {
+                return 8'h08;
+            } // PHP
+
+            16'h8008: {
+                return 8'h18;
+            } // CLC
+            16'h8009: {
+                return 8'hA9;
+            } // LDA #$FF
+            16'h800A: {
+                return 8'hFF;
+            }
+            16'h800B: {
+                return 8'h69;
+            } // ADC #$01 -> $00, C=1 Z=1
+            16'h800C: {
+                return 8'h01;
+            }
+            16'h800D: {
+                return 8'h85;
+            } // STA $11
+            16'h800E: {
+                return 8'h11;
+            }
+            16'h800F: {
+                return 8'h08;
+            } // PHP
+
+            16'h8010: {
+                return 8'h38;
+            } // SEC
+            16'h8011: {
+                return 8'hA9;
+            } // LDA #$80
+            16'h8012: {
+                return 8'h80;
+            }
+            16'h8013: {
+                return 8'hE9;
+            } // SBC #$01 -> $7F, C=1 V=1
+            16'h8014: {
+                return 8'h01;
+            }
+            16'h8015: {
+                return 8'h85;
+            } // STA $12
+            16'h8016: {
+                return 8'h12;
+            }
+            16'h8017: {
+                return 8'h08;
+            } // PHP
+
+            16'h8018: {
+                return 8'hA9;
+            } // LDA #$F0
+            16'h8019: {
+                return 8'hF0;
+            }
+            16'h801A: {
+                return 8'h29;
+            } // AND #$0F -> $00, Z=1
+            16'h801B: {
+                return 8'h0F;
+            }
+            16'h801C: {
+                return 8'h85;
+            } // STA $13
+            16'h801D: {
+                return 8'h13;
+            }
+            16'h801E: {
+                return 8'h08;
+            } // PHP
+            16'h801F: {
+                return 8'h09;
+            } // ORA #$80 -> $80, N=1
+            16'h8020: {
+                return 8'h80;
+            }
+            16'h8021: {
+                return 8'h85;
+            } // STA $14
+            16'h8022: {
+                return 8'h14;
+            }
+            16'h8023: {
+                return 8'h08;
+            } // PHP
+            16'h8024: {
+                return 8'h49;
+            } // EOR #$FF -> $7F
+            16'h8025: {
+                return 8'hFF;
+            }
+            16'h8026: {
+                return 8'h85;
+            } // STA $15
+            16'h8027: {
+                return 8'h15;
+            }
+            16'h8028: {
+                return 8'h08;
+            } // PHP
+
+            16'h8029: {
+                return 8'hA9;
+            } // LDA #$40
+            16'h802A: {
+                return 8'h40;
+            }
+            16'h802B: {
+                return 8'hC9;
+            } // CMP #$40 -> C=1 Z=1
+            16'h802C: {
+                return 8'h40;
+            }
+            16'h802D: {
+                return 8'h08;
+            } // PHP
+            16'h802E: {
+                return 8'hC9;
+            } // CMP #$80 -> C=0 N=1
+            16'h802F: {
+                return 8'h80;
+            }
+            16'h8030: {
+                return 8'h08;
+            } // PHP
+            16'h8031: {
+                return 8'h4C;
+            } // JMP $8031
+            16'h8032: {
+                return 8'h31;
+            }
+            16'h8033: {
+                return 8'h80;
+            }
+            default: {
+                return 0;
+            }
+        }
+    }
+
+    always_ff (clk, rst) {
+        if_reset {
+            cpubus.rdata = 0;
+            result_count = 0;
+            flag_count   = 0;
+        } else {
+            cpubus.rdata = program_data(cpubus.addr);
+            if (cpubus.wen) {
+                case (cpubus.addr) {
+                    16'h0010: {
+                        $display("ALU ADC overflow: result=%h expected=80", cpubus.wdata);
+                        $assert(cpubus.wdata == 8'h80);
+                        result_count = result_count + 1;
+                    }
+                    16'h0011: {
+                        $display("ALU ADC carry/zero: result=%h expected=00", cpubus.wdata);
+                        $assert(cpubus.wdata == 8'h00);
+                        result_count = result_count + 1;
+                    }
+                    16'h0012: {
+                        $display("ALU SBC overflow: result=%h expected=7f", cpubus.wdata);
+                        $assert(cpubus.wdata == 8'h7F);
+                        result_count = result_count + 1;
+                    }
+                    16'h0013: {
+                        $display("ALU AND: result=%h expected=00", cpubus.wdata);
+                        $assert(cpubus.wdata == 8'h00);
+                        result_count = result_count + 1;
+                    }
+                    16'h0014: {
+                        $display("ALU ORA: result=%h expected=80", cpubus.wdata);
+                        $assert(cpubus.wdata == 8'h80);
+                        result_count = result_count + 1;
+                    }
+                    16'h0015: {
+                        $display("ALU EOR: result=%h expected=7f", cpubus.wdata);
+                        $assert(cpubus.wdata == 8'h7F);
+                        result_count = result_count + 1;
+                    }
+                    16'h01FD: {
+                        $display("ALU ADC overflow flags: p=%h expected=f4", cpubus.wdata);
+                        $assert(cpubus.wdata == 8'hF4);
+                        flag_count = flag_count + 1;
+                    }
+                    16'h01FC: {
+                        $display("ALU ADC carry/zero flags: p=%h expected=37", cpubus.wdata);
+                        $assert(cpubus.wdata == 8'h37);
+                        flag_count = flag_count + 1;
+                    }
+                    16'h01FB: {
+                        $display("ALU SBC flags: p=%h expected=75", cpubus.wdata);
+                        $assert(cpubus.wdata == 8'h75);
+                        flag_count = flag_count + 1;
+                    }
+                    16'h01FA: {
+                        $display("ALU AND flags: p=%h expected=77", cpubus.wdata);
+                        $assert(cpubus.wdata == 8'h77);
+                        flag_count = flag_count + 1;
+                    }
+                    16'h01F9: {
+                        $display("ALU ORA flags: p=%h expected=f5", cpubus.wdata);
+                        $assert(cpubus.wdata == 8'hF5);
+                        flag_count = flag_count + 1;
+                    }
+                    16'h01F8: {
+                        $display("ALU EOR flags: p=%h expected=75", cpubus.wdata);
+                        $assert(cpubus.wdata == 8'h75);
+                        flag_count = flag_count + 1;
+                    }
+                    16'h01F7: {
+                        $display("ALU CMP equal flags: p=%h expected=77", cpubus.wdata);
+                        $assert(cpubus.wdata == 8'h77);
+                        flag_count = flag_count + 1;
+                    }
+                    16'h01F6: {
+                        $display("ALU CMP negative flags: p=%h expected=f4", cpubus.wdata);
+                        $assert(cpubus.wdata == 8'hF4);
+                        flag_count = flag_count + 1;
+                    }
+                    default: {}
+                }
+            }
+        }
+    }
+
+    initial {
+        stall = 0;
+        nmi   = 0;
+        halt  = 0;
+        rst.assert();
+
+        clk.next(180);
+        $display("ALU summary: pc=%h results=%d flags=%d", debug_pc, result_count, flag_count);
+        $assert(result_count == 6);
+        $assert(flag_count == 8);
+        $assert(debug_pc == 16'h8031);
+        $finish();
+    }
+}

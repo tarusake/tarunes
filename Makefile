@@ -25,6 +25,90 @@ veryl-build: veryl-fmt
 	veryl build
 	perl -0pi -e 's/\)\s*;\n    typedef struct packed/\) \/\*synthesis syn_ramstyle="registers"\*\/ ;\n    typedef struct packed/' target/ppu.sv
 
+test:
+	veryl test
+
+test-controller:
+	veryl test --test test_controller_serial_read --no-capture
+
+test-oam-dma:
+	veryl test --test test_oam_dma_transfer --no-capture
+
+test-bus-cpu:
+	veryl test --test test_bus_cpu_decode --no-capture
+
+test-cpu:
+	veryl test --test test_cpu_program_execution --no-capture
+
+test-cpu-alu:
+	veryl test --test test_cpu_alu_and_flags --no-capture
+
+test-cpu-addressing:
+	veryl test --test test_cpu_addressing_modes --no-capture
+
+test-cpu-branch:
+	veryl test --test test_cpu_branch_conditions --no-capture
+
+test-cpu-stack:
+	veryl test --test test_cpu_stack_and_subroutine --no-capture
+
+test-cpu-interrupt:
+	veryl test --test test_cpu_interrupts --no-capture
+
+test-cpu-rmw:
+	veryl test --test test_cpu_read_modify_write --no-capture
+
+test-cpu-jmp-indirect:
+	veryl test --test test_cpu_jmp_indirect_wrap --no-capture
+
+test-cpu-pause:
+	veryl test --test test_cpu_stall_and_halt --no-capture
+
+test-cpu-acc-shift:
+	veryl test --test test_cpu_accumulator_shift_rotate --no-capture
+
+test-cpu-register:
+	veryl test --test test_cpu_register_transfer_increment --no-capture
+
+test-cpu-bit:
+	veryl test --test test_cpu_bit_flags --no-capture
+
+test-cpu-store:
+	veryl test --test test_cpu_store_addressing --no-capture
+
+test-cpu-zp-wrap:
+	veryl test --test test_cpu_zero_page_wrap --no-capture
+
+test-cpu-page-cross:
+	veryl test --test test_cpu_page_crossing --no-capture
+
+test-cpu-interrupt-detail:
+	veryl test --test test_cpu_interrupt_details --no-capture
+
+test-cpu-write-pause:
+	veryl test --test test_cpu_write_pause --no-capture
+
+test-bus-ppu:
+	veryl test --test test_bus_ppu_decode --no-capture
+
+test-memory:
+	veryl test --test test_memory_read_write --no-capture
+
+test-i2s:
+	veryl test --test test_i2s_frame --no-capture
+
+test-sfc-controller:
+	veryl test --test test_sfc_controller_poll --no-capture
+
+test-hdmi-scaler:
+	veryl test --test test_hdmi_480p_timing_and_scaling --no-capture
+
+test-apu:
+	veryl test --test test_apu_registers_and_status --no-capture
+
+test-apu-pulse:
+	veryl test --test test_apu_pulse_timing_and_duty --no-capture
+
 rom: $(PRG_HEX) $(CHR_HEX)
 
 $(PRG_HEX) $(CHR_HEX): $(NES_ROM) nes2hex.py
@@ -48,4 +132,4 @@ run: build
 clean:
 	rm -rf obj_dir target *.vcd *.fst *.fst.hier
 
-.PHONY: all build run clean veryl-fmt veryl-build rom
+.PHONY: all build run clean veryl-fmt veryl-build test test-controller test-oam-dma test-bus-cpu test-cpu test-cpu-alu test-cpu-addressing test-cpu-branch test-cpu-stack test-cpu-interrupt test-cpu-rmw test-cpu-jmp-indirect test-cpu-pause test-cpu-acc-shift test-cpu-register test-cpu-bit test-cpu-store test-cpu-zp-wrap test-cpu-page-cross test-cpu-interrupt-detail test-cpu-write-pause test-bus-ppu test-memory test-i2s test-sfc-controller test-hdmi-scaler test-apu test-apu-pulse rom

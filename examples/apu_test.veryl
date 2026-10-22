@@ -1,0 +1,90 @@
+#[test(test_apu_registers_and_status)]
+module test_apu_registers_and_status {
+    inst clk: $tb::clock_gen;
+    inst rst: $tb::reset_gen ( clk );
+
+    var stall       : logic   ;
+    var bus_stall   : logic   ;
+    var audio_sample: logic<8>;
+
+    inst cpubus: bus_if::<8, 5>;
+
+    inst dut: apu (
+        clk         : clk         ,
+        rst         : rst         ,
+        stall       : stall       ,
+        bus_stall   : bus_stall   ,
+        cpubus      : cpubus      ,
+        audio_sample: audio_sample,
+    );
+
+    function write_register (
+        addr: input logic<5>,
+        data: input logic<8>,
+    ) {
+        cpubus.addr  = addr;
+        cpubus.wdata = data;
+        cpubus.wen   = 1;
+        clk.next();
+        cpubus.wen = 0;
+        clk.next();
+    }
+
+    initial {
+        stall        = 0;
+        bus_stall    = 0;
+        cpubus.addr  = 0;
+        cpubus.wen   = 0;
+        cpubus.wdata = 0;
+
+        rst.assert();
+        $display("APU reset: sample=%h status=%h", audio_sample, cpubus.rdata);
+        $assert(audio_sample == 8'h80);
+        $assert(cpubus.rdata == 0);
+
+        // Enable all implemented channels through $4015.
+        write_register(5'h15, 8'h0F);
+        $assert(dut.pulse1_enabled);
+        $assert(dut.pulse2_enabled);
+        $assert(dut.triangle_enabled);
+        $assert(dut.noise_enabled);
+
+        // Loading the high timer byte also loads pulse 1's length counter.
+        write_register(5'h00, 8'b11011111);
+        write_register(5'h02, 8'h34);
+        write_register(5'h03, 8'h08);
+        clk.next();
+        $display(
+            "APU pulse1: period=%h length=%d status=%h",
+            dut.pulse1_timer_period,
+            dut.pulse1_length_counter,
+            cpubus.rdata,
+        );
+        $assert(dut.pulse1_timer_period == 11'h034);
+        $assert(dut.pulse1_length_counter == 8'd254);
+        $assert(cpubus.rdata[0]);
+
+        // A stalled bus must not accept writes or update the status readback.
+        bus_stall    = 1;
+        cpubus.addr  = 5'h15;
+        cpubus.wdata = 0;
+        cpubus.wen   = 1;
+        clk.next();
+        cpubus.wen = 0;
+        clk.next();
+        $display("APU bus stalled: enabled=%b status=%h", dut.pulse1_enabled, cpubus.rdata);
+        $assert(dut.pulse1_enabled);
+        $assert(cpubus.rdata[0]);
+        bus_stall = 0;
+
+        // Disabling a channel immediately clears its length counter/status bit.
+        write_register(5'h15, 8'h00);
+        clk.next();
+        $display("APU disabled: length=%d status=%h sample=%h", dut.pulse1_length_counter, cpubus.rdata, audio_sample);
+        $assert(dut.pulse1_length_counter == 0);
+        $assert(cpubus.rdata[3:0] == 0);
+        $assert(audio_sample == 8'h80);
+
+        $finish();
+    }
+}

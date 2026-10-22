@@ -1,0 +1,73 @@
+#[test(test_sfc_controller_poll)]
+module test_sfc_controller_poll {
+    inst clk: $tb::clock_gen;
+    inst rst: $tb::reset_gen ( clk );
+
+    var sfc_data : logic   ;
+    var sfc_latch: logic   ;
+    var sfc_clk  : logic   ;
+    var buttons  : logic<8>;
+
+    inst dut: sfc_controller #(
+        HALF_PERIOD_CYCLES: 0,
+        LATCH_CYCLES      : 0,
+        POLL_GAP_CYCLES   : 0,
+    ) (
+        clk      : clk      ,
+        rst      : rst      ,
+        sfc_data : sfc_data ,
+        sfc_latch: sfc_latch,
+        sfc_clk  : sfc_clk  ,
+        buttons  : buttons  ,
+    );
+
+    function send_next_bit (
+        index  : input logic<5>,
+        pressed: input logic   ,
+    ) {
+        sfc_data = !pressed;
+        clk.next(3);
+        $display("SFC sample[%d]: pressed=%b clk=%b", index, pressed, sfc_clk);
+        $assert(sfc_clk);
+    }
+
+    initial {
+        // Active-low serial input; bit 0 is B on an SFC controller.
+        sfc_data = 0;
+        rst.assert();
+        $assert(!sfc_latch);
+        $assert(sfc_clk);
+
+        // GAP -> LATCH -> first SAMPLE. Two cycles also synchronize bit 0.
+        clk.next();
+        clk.next();
+        $display("SFC latch: latch=%b clk=%b", sfc_latch, sfc_clk);
+        $assert(sfc_latch);
+        clk.next();
+
+        // raw bits 0, 3, 5, 7 and 8 are pressed.
+        send_next_bit(1, 0);
+        send_next_bit(2, 0);
+        send_next_bit(3, 1);
+        send_next_bit(4, 0);
+        send_next_bit(5, 1);
+        send_next_bit(6, 0);
+        send_next_bit(7, 1);
+        send_next_bit(8, 1);
+        send_next_bit(9, 0);
+        send_next_bit(10, 0);
+        send_next_bit(11, 0);
+        send_next_bit(12, 0);
+        send_next_bit(13, 0);
+        send_next_bit(14, 0);
+        send_next_bit(15, 0);
+
+        clk.next();
+        $display("SFC published NES buttons=%b", buttons);
+        $assert(buttons == 8'b10101011);
+        $assert(!sfc_latch);
+        $assert(sfc_clk);
+
+        $finish();
+    }
+}

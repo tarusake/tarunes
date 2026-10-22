@@ -92,9 +92,21 @@ module top #(
         cpubus        : cpubus        ,
     );
 
-    inst wram: memory::<8, 11> ( clk: clk, rst: rst, stall: core_stall, membus: wrambus );
+    inst wram: memory::<8, 11> (
+        clk   : clk       ,
+        rst   : rst       ,
+        stall : core_stall,
+        membus: wrambus   ,
+    );
 
-    inst prom: memory::<8, 15> #( PATH: PROM_PATH ) ( clk: clk, rst: rst, stall: core_stall, membus: prombus );
+    inst prom: memory::<8, 15> #(
+        PATH: PROM_PATH,
+    ) (
+        clk   : clk       ,
+        rst   : rst       ,
+        stall : core_stall,
+        membus: prombus   ,
+    );
 
     inst ubus_cpu: bus_cpu (
         clk        : clk        ,
@@ -262,8 +274,20 @@ module top #(
         vrambus: vrambus   ,
     );
 
-    inst vram: memory::<8, 11> ( clk: clk, rst: rst, stall: core_stall, membus: vrambus );
+    inst vram: memory::<8, 11> (
+        clk   : clk       ,
+        rst   : rst       ,
+        stall : core_stall,
+        membus: vrambus   ,
+    );
 
-    inst crom: memory::<8, 13> #( PATH: CROM_PATH ) ( clk: clk, rst: rst, stall: core_stall, membus: crombus );
+    inst crom: memory::<8, 13> #(
+        PATH: CROM_PATH,
+    ) (
+        clk   : clk       ,
+        rst   : rst       ,
+        stall : core_stall,
+        membus: crombus   ,
+    );
 
 }

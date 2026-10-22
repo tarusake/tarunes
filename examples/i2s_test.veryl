@@ -1,0 +1,64 @@
+#[test(test_i2s_frame)]
+module test_i2s_frame {
+    inst clk: $tb::clock_gen;
+    inst rst: $tb::reset_gen ( clk );
+
+    var sample    : logic<8>;
+    var bclk      : logic   ;
+    var lrck      : logic   ;
+    var dout      : logic   ;
+    var sample_req: logic   ;
+
+    inst dut: i2s (
+        clk       : clk       ,
+        rst       : rst       ,
+        sample    : sample    ,
+        bclk      : bclk      ,
+        lrck      : lrck      ,
+        dout      : dout      ,
+        sample_req: sample_req,
+    );
+
+    function check_bit (
+        index   : input logic<4>,
+        expected: input logic   ,
+    ) {
+        // Each serialized bit is updated on every BCLK falling edge.
+        clk.next(18);
+        $display("I2S left[%d]: dout=%b expected=%b lrck=%b", index, dout, expected, lrck);
+        $assert(dout == expected, "I2S bit %d mismatch", index);
+        $assert(!lrck);
+        $assert(!bclk);
+    }
+
+    initial {
+        // 0x25 is converted from unsigned NES audio to signed 0xA500 PCM.
+        sample = 8'h25;
+        rst.assert();
+
+        check_bit(0, 1);
+        check_bit(1, 0);
+        check_bit(2, 1);
+        check_bit(3, 0);
+        check_bit(4, 0);
+        check_bit(5, 1);
+        check_bit(6, 0);
+        check_bit(7, 1);
+
+        // Skip the low zero byte, then verify the right channel restarts at MSB.
+        clk.next(8 * 18);
+        clk.next(18);
+        $display("I2S right start: dout=%b lrck=%b", dout, lrck);
+        $assert(dout == 1);
+        $assert(lrck);
+
+        // The request pulse marks completion of the 32-bit stereo frame.
+        clk.next(15 * 18);
+        $display("I2S frame complete: sample_req=%b lrck=%b", sample_req, lrck);
+        $assert(sample_req);
+        clk.next();
+        $assert(!sample_req);
+
+        $finish();
+    }
+}

@@ -1,0 +1,147 @@
+#[test(test_cpu_interrupts)]
+module test_cpu_interrupts {
+    inst clk: $tb::clock_gen;
+    inst rst: $tb::reset_gen ( clk );
+    var stall         : logic    ;
+    var nmi           : logic    ;
+    var halt          : logic    ;
+    var brk_enable    : logic    ;
+    var debug_pc      : logic<16>;
+    var logic_analizer: logic<16>;
+    var stack_fd      : logic<8> ;
+    var stack_fc      : logic<8> ;
+    var stack_fb      : logic<8> ;
+    var nmi_seen      : logic    ;
+    var brk_seen      : logic    ;
+    var nmi_status_ok : logic    ;
+    var brk_status_ok : logic    ;
+    inst cpubus: bus_if::<8, 16>;
+    inst dut: cpu (
+        clk           : clk           ,
+        rst           : rst           ,
+        stall         : stall         ,
+        nmi           : nmi           ,
+        halt          : halt          ,
+        debug_pc      : debug_pc      ,
+        logic_analizer: logic_analizer,
+        cpubus        : cpubus        ,
+    );
+    function rom (
+        addr: input logic<16>,
+    ) -> logic<8> {
+        case (addr) {
+            16'hFFFC: return 8'h00;
+            16'hFFFD: return 8'h80;
+            16'hFFFA: return 8'h00;
+            16'hFFFB: return 8'h90;
+            16'hFFFE: return 8'h00;
+            16'hFFFF: return 8'h91;
+            16'h8000: return 8'hEA; // overridden by JMP $8010 after NMI
+            16'h8001: return 8'h4C;
+            16'h8002: return 8'h00;
+            16'h8003: return 8'h80;
+            16'h8010: return 8'h00;
+            16'h8011: return 8'hEA; // BRK + padding
+            16'h8012: return 8'h4C;
+            16'h8013: return 8'h12;
+            16'h8014: return 8'h80;
+            16'h9000: return 8'hA9;
+            16'h9001: return 8'hA5;
+            16'h9002: return 8'h85;
+            16'h9003: return 8'h10;
+            16'h9004: return 8'h40;
+            16'h9100: return 8'hA9;
+            16'h9101: return 8'h5A;
+            16'h9102: return 8'h85;
+            16'h9103: return 8'h11;
+            16'h9104: return 8'h40;
+            default : return 0;
+        }
+    }
+    always_ff (clk, rst) {
+        if_reset {
+            cpubus.rdata  = 0;
+            stack_fd      = 0;
+            stack_fc      = 0;
+            stack_fb      = 0;
+            nmi_seen      = 0;
+            brk_seen      = 0;
+            nmi_status_ok = 0;
+            brk_status_ok = 0;
+        } else {
+            case (cpubus.addr) {
+                16'h01FD: {
+                    cpubus.rdata = stack_fd;
+                }
+                16'h01FC: {
+                    cpubus.rdata = stack_fc;
+                }
+                16'h01FB: {
+                    cpubus.rdata = stack_fb;
+                }
+                default: {
+                    if (brk_enable && cpubus.addr == 16'h8000) {
+                        cpubus.rdata = 8'h4C;
+                    } else if (brk_enable && cpubus.addr == 16'h8001) {
+                        cpubus.rdata = 8'h10;
+                    } else if (brk_enable && cpubus.addr == 16'h8002) {
+                        cpubus.rdata = 8'h80;
+                    } else {
+                        cpubus.rdata = rom(cpubus.addr);
+                    }
+                }
+            }
+            if (cpubus.wen) {
+                case (cpubus.addr) {
+                    16'h01FD: {
+                        stack_fd = cpubus.wdata;
+                    }
+                    16'h01FC: {
+                        stack_fc = cpubus.wdata;
+                    }
+                    16'h01FB: {
+                        stack_fb = cpubus.wdata;
+                        if (brk_enable) {
+                            brk_status_ok = cpubus.wdata[4];
+                        } else {
+                            nmi_status_ok = !cpubus.wdata[4];
+                        }
+                        $display("Interrupt stack status: brk=%b p=%h", brk_enable, cpubus.wdata);
+                    }
+                    16'h0010: {
+                        nmi_seen = cpubus.wdata == 8'hA5;
+                        $display("NMI handler result=%h", cpubus.wdata);
+                    }
+                    16'h0011: {
+                        brk_seen = cpubus.wdata == 8'h5A;
+                        $display("BRK handler result=%h", cpubus.wdata);
+                    }
+                    default: {}
+                }
+            }
+        }
+    }
+    initial {
+        stall      = 0;
+        nmi        = 0;
+        halt       = 0;
+        brk_enable = 0;
+        rst.assert();
+        clk.next(24);
+        nmi = 1;
+        clk.next(1);
+        nmi = 0;
+        clk.next(80);
+        $assert(nmi_seen);
+        $assert(nmi_status_ok);
+        $assert(dut.reg_sp == 8'hFD);
+        brk_enable = 1;
+        clk.next(120);
+        $display("Interrupt summary: pc=%h sp=%h nmi=%b brk=%b", debug_pc, dut.reg_sp, nmi_seen, brk_seen);
+        $assert(brk_seen);
+        $assert(brk_status_ok);
+        $assert(dut.reg_sp == 8'hFD);
+        $assert(debug_pc == 16'h8012);
+        $finish();
+    }
+}

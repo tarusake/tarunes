@@ -1,0 +1,73 @@
+#[test(test_controller_serial_read)]
+module test_controller_serial_read {
+    inst clk: $tb::clock_gen;
+    inst rst: $tb::reset_gen ( clk );
+
+    var stall           : logic   ;
+    var sel             : logic   ;
+    var controller1_btns: logic<8>;
+    var controller2_btns: logic<8>;
+
+    inst cpubus: bus_if::<8, 1>;
+
+    inst dut: controller (
+        clk             : clk             ,
+        rst             : rst             ,
+        stall           : stall           ,
+        sel             : sel             ,
+        controller1_btns: controller1_btns,
+        controller2_btns: controller2_btns,
+        cpubus          : cpubus          ,
+    );
+
+    function read_controller1 (
+        index   : input logic<4>,
+        expected: input logic   ,
+    ) {
+        cpubus.addr = 0;
+        cpubus.wen  = 0;
+        sel         = 1;
+        clk.next();
+        $display("controller1[%d]: actual=%b expected=%b", index, cpubus.rdata[0], expected);
+        $assert(cpubus.rdata[0] == expected, "controller1[%d] mismatch", index);
+        sel = 0;
+        clk.next();
+    }
+
+    initial {
+        stall            = 0;
+        sel              = 0;
+        controller1_btns = 8'b10100101;
+        controller2_btns = 0;
+        cpubus.addr      = 0;
+        cpubus.wen       = 0;
+        cpubus.wdata     = 0;
+
+        rst.assert();
+        $display("buttons latched: controller1=%b", controller1_btns);
+
+        // Latch the current buttons on a 1 -> 0 strobe sequence.
+        sel          = 1;
+        cpubus.wen   = 1;
+        cpubus.wdata = 1;
+        clk.next();
+        cpubus.wdata = 0;
+        clk.next();
+        sel = 0;
+        clk.next();
+
+        // $4016 returns A, B, Select, Start, Up, Down, Left, Right.
+        read_controller1(0, 1);
+        read_controller1(1, 0);
+        read_controller1(2, 1);
+        read_controller1(3, 0);
+        read_controller1(4, 0);
+        read_controller1(5, 1);
+        read_controller1(6, 0);
+        read_controller1(7, 1);
+
+        // Reads after the eighth button return 1.
+        read_controller1(8, 1);
+        $finish();
+    }
+}

@@ -1,0 +1,124 @@
+#[test(test_cpu_stack_and_subroutine)]
+module test_cpu_stack_and_subroutine {
+    inst clk: $tb::clock_gen;
+    inst rst: $tb::reset_gen ( clk );
+    var stall         : logic    ;
+    var nmi           : logic    ;
+    var halt          : logic    ;
+    var debug_pc      : logic<16>;
+    var logic_analizer: logic<16>;
+    var stack_fd      : logic<8> ;
+    var stack_fc      : logic<8> ;
+    var result_10     : logic<8> ;
+    var result_11     : logic<8> ;
+    var result_seen   : logic<2> ;
+    var status_seen   : logic    ;
+    inst cpubus: bus_if::<8, 16>;
+    inst dut: cpu (
+        clk           : clk           ,
+        rst           : rst           ,
+        stall         : stall         ,
+        nmi           : nmi           ,
+        halt          : halt          ,
+        debug_pc      : debug_pc      ,
+        logic_analizer: logic_analizer,
+        cpubus        : cpubus        ,
+    );
+    function rom (
+        addr: input logic<16>,
+    ) -> logic<8> {
+        case (addr) {
+            16'hFFFC: return 8'h00;
+            16'hFFFD: return 8'h80;
+            16'h8000: return 8'hA9;
+            16'h8001: return 8'h5A; // LDA #$5A
+            16'h8002: return 8'h48; // PHA
+            16'h8003: return 8'hA9;
+            16'h8004: return 8'h00;
+            16'h8005: return 8'h68; // PLA
+            16'h8006: return 8'h85;
+            16'h8007: return 8'h10;
+            16'h8008: return 8'h38; // SEC
+            16'h8009: return 8'h08; // PHP
+            16'h800A: return 8'h18; // CLC
+            16'h800B: return 8'h28; // PLP
+            16'h800C: return 8'h08; // PHP: observe restored carry
+            16'h800D: return 8'h28; // PLP: restore SP
+            16'h800E: return 8'h20;
+            16'h800F: return 8'h20;
+            16'h8010: return 8'h80; // JSR $8020
+            16'h8011: return 8'h85;
+            16'h8012: return 8'h11;
+            16'h8013: return 8'h4C;
+            16'h8014: return 8'h13;
+            16'h8015: return 8'h80;
+            16'h8020: return 8'hA9;
+            16'h8021: return 8'hA5;
+            16'h8022: return 8'h60; // RTS
+            default : return 0;
+        }
+    }
+    always_ff (clk, rst) {
+        if_reset {
+            cpubus.rdata = 0;
+            stack_fd     = 0;
+            stack_fc     = 0;
+            result_10    = 0;
+            result_11    = 0;
+            result_seen  = 0;
+            status_seen  = 0;
+        } else {
+            case (cpubus.addr) {
+                16'h01FD: {
+                    cpubus.rdata = stack_fd;
+                }
+                16'h01FC: {
+                    cpubus.rdata = stack_fc;
+                }
+                default: {
+                    cpubus.rdata = rom(cpubus.addr);
+                }
+            }
+            if (cpubus.wen) {
+                case (cpubus.addr) {
+                    16'h01FD: {
+                        stack_fd = cpubus.wdata;
+                        if (cpubus.wdata == 8'h35) {
+                            status_seen = 1;
+                            $display("Stack PLP restored status: p=%h", cpubus.wdata);
+                        }
+                    }
+                    16'h01FC: {
+                        stack_fc = cpubus.wdata;
+                    }
+                    16'h0010: {
+                        result_10      = cpubus.wdata;
+                        result_seen[0] = 1;
+                        $display("Stack PLA result=%h", cpubus.wdata);
+                    }
+                    16'h0011: {
+                        result_11      = cpubus.wdata;
+                        result_seen[1] = 1;
+                        $display("Stack JSR/RTS result=%h", cpubus.wdata);
+                    }
+                    default: {}
+                }
+            }
+        }
+    }
+    initial {
+        stall = 0;
+        nmi   = 0;
+        halt  = 0;
+        rst.assert();
+        clk.next(180);
+        $display("Stack summary: pc=%h sp=%h stack_fd=%h stack_fc=%h", debug_pc, dut.reg_sp, stack_fd, stack_fc);
+        $assert(result_seen == 2'b11);
+        $assert(result_10 == 8'h5A);
+        $assert(result_11 == 8'hA5);
+        $assert(status_seen);
+        $assert(dut.reg_sp == 8'hFD);
+        $assert(debug_pc == 16'h8013);
+        $finish();
+    }
+}

@@ -34,7 +34,9 @@ module bus_cpu (
     assign sel_prom   = cpubus.addr >= 16'h8000;
     assign dma_start  = cpubus.wen && sel_oamdma && !oamdma_write_d && !dma_busy;
     assign dma_page   = cpubus.wdata;
-    assign cpu_halt   = dma_start || dma_busy;
+    // $4014の書き込みサイクルは完了させ、DMAがbusyになった次のサイクルからCPUを停止する。
+    // dma_startを含めるとCPU側の書き込み抑止と組み合わせループになる。
+    assign cpu_halt = dma_busy;
 
     // address assign
     assign prombus.addr    = if sel_prom ? cpubus.addr[14:0] : 0;
