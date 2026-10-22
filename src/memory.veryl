@@ -6,6 +6,7 @@ module memory::<DATA_WIDTH: u32, ADDR_WIDTH: u32> #(
     stall : input   logic                                  ,
     membus: modport bus_if::<DATA_WIDTH, ADDR_WIDTH>::slave,
 ) {
+    #[allow(initial_assign)]
     var mem: logic<DATA_WIDTH> [2 ** ADDR_WIDTH];
 
     initial {
