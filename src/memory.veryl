@@ -1,4 +1,6 @@
-module memory::<DATA_WIDTH: u32, ADDR_WIDTH: u32> #(
+/// パラメータ化された同期読み出し・書き込みメモリ。
+/// `PATH`が指定されている場合は`$readmemh`で初期化する。`stall`中は読み書きを止める。
+pub module memory::<DATA_WIDTH: u32, ADDR_WIDTH: u32> #(
     param PATH: string = "",
 ) (
     clk   : input   clock                                  ,

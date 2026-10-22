@@ -1,4 +1,15 @@
-module oam_dma (
+/// CPUメモリの1ページ（256バイト）をPPUのOAMへ転送するDMAエンジン。
+///
+/// CPUが`$4014`へ書き込むと、そのデータを上位アドレスとしてラッチする。
+/// 転送量は常に1ページ＝256バイトである。内部では各バイトについて
+/// `READ`と`WRITE`の2ステートを繰り返し、PPU側のOAMDATAレジスタ
+/// （アドレス`4`）へ書き込む。`index == $FF`の書き込み後に完了する。
+/// `stall`中は状態とインデックスを保持する。
+///
+/// `start`を受けた次サイクルから`busy=1`となる。インデックスを`$00`から
+/// `$FF`まで進めながら各バイトの`READ → WRITE`を繰り返し、最後の
+/// `WRITE`を終えた次サイクルに`IDLE`へ戻って`busy=0`となる。
+pub module oam_dma (
     clk       : input   clock                     ,
     rst       : input   reset                     ,
     stall     : input   logic                     ,

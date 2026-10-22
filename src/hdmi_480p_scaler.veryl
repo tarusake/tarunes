@@ -1,4 +1,6 @@
-module hdmi_480p_scaler (
+/// NESの256×240画素をフレームバッファに格納し、720×480映像タイミングで出力する。
+/// 画面中央の512×480領域に2倍拡大し、周囲には固定色の枠を付ける。
+pub module hdmi_480p_scaler (
     clk             : input  clock    ,
     rst             : input  reset    ,
     core_cycle      : input  logic<9> ,

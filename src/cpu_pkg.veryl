@@ -1,4 +1,4 @@
-/// Shared 6502 instruction decoding definitions.
+/// 6502の命令種別、アドレッシングモード、オペコード表を共有するパッケージ。
 package cpu_pkg {
     const FLAG_CARRY    : u32 = 0;
     const FLAG_ZERO     : u32 = 1;

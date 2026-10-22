@@ -1,4 +1,32 @@
-module bus_cpu (
+/// CPUアドレスデコーダと1サイクル遅延の読み出し応答MUX。
+///
+/// ## アドレスマップ
+///
+/// | CPU範囲 | 接続先 | 接続先へ出力するアドレス |
+/// | --- | --- | --- |
+/// | `$0000-$1FFF` | ワークRAM | `A[10:0]`（2 KiBをミラー） |
+/// | `$2000-$2007` | PPUレジスタ | `A[2:0]` |
+/// | `$4000-$4015`、`$4017`書込 | APU | `A[4:0]` |
+/// | `$4014` | OAM DMA開始 | 書き込みデータを転送元ページに使用 |
+/// | `$4016-$4017`読出 | コントローラ | `A[0]` |
+/// | `$8000-$FFFF` | PRG ROM | `A[14:0]` |
+///
+/// 読み出し先の選択信号をクロックエッジでレジスタに保存し、次のサイクルで
+/// `cpubus.rdata`を選択する。書き込みは要求サイクル中に組み合わせ回路で
+/// 転送する。OAM DMA動作中はDMAがワークRAMとPPUレジスタポートを占有し、
+/// `cpu_halt`でCPUコアを停止する。
+///
+/// ```wavedrom
+/// {signal: [
+///   {name: 'clk',          wave: 'p....'},
+///   {name: 'cpubus.addr',  wave: 'x=..x', data: ['$2002']},
+///   {name: 'cpubus.wen',   wave: '0....'},
+///   {name: 'sel_ppu',      wave: '01.0.'},
+///   {name: 'sel_ppu_d',    wave: '0.1.0'},
+///   {name: 'cpubus.rdata', wave: 'x.=.x', data: ['PPUSTATUS']}
+/// ], head: {text: 'CPU読出：要求の次サイクルに応答'}}
+/// ```
+pub module bus_cpu (
     clk        : input   clock                     ,
     rst        : input   reset                     ,
     stall      : input   logic                     ,

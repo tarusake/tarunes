@@ -1,4 +1,6 @@
-module i2s #(
+/// 8ビット音声サンプルをI2Sのビットクロック、左右クロック、直列データへ変換する。
+/// `sample_req`で次のサンプルを要求する。`TEST_TONE`で内蔵テスト音を選択できる。
+pub module i2s #(
     param TEST_TONE: bbool = false,
 ) (
     clk       : input  clock   ,

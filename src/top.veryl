@@ -1,4 +1,32 @@
-module top #(
+/// NESコア全体を接続するトップレベルモジュール。
+///
+/// CPU、PPU、APU、メモリ、コントローラ、映像・音声出力を統合する。
+/// CPUとPPUは個別のアドレス空間を持ち、OAM DMA中はCPUを停止して
+/// DMA回路がワークRAMとPPUのOAMDATAポートを占有する。
+///
+/// ```mermaid
+/// flowchart LR
+///     CPU[6502 CPU] --> CBUS[CPUバスデコーダ]
+///     CBUS --> WRAM[2 KiB ワークRAM]
+///     CBUS --> PROM[PRG ROM]
+///     CBUS --> APU[APU]
+///     CBUS --> CTRL[コントローラ]
+///     CBUS --> PPU[PPUレジスタ]
+///     CBUS --> DMA[OAM DMA]
+///     DMA --> WRAM
+///     DMA --> PPU
+///     PPU --> PBUS[PPUバスデコーダ]
+///     PBUS --> CROM[CHR ROM]
+///     PBUS --> VRAM[ネームテーブルRAM]
+///     PPU --> VIDEO[HDMI 480pスケーラ]
+///     APU --> FIFO[音声FIFO]
+///     FIFO --> I2S[I2S出力]
+///     PPU -. NMI .-> CPU
+/// ```
+///
+/// `frame_sync`に合わせてPPUフレームと音声サンプル生成を同期する。
+/// `ENABLE_APU`が無効の場合は無音の中央値`$80`を出力する。
+pub module top #(
     param PROM_PATH    : string = ""   ,
     param CROM_PATH    : string = ""   ,
     param ENABLE_APU   : bbool  = false,
