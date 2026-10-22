@@ -52,6 +52,9 @@ test-sfc-controller:
 test-hdmi-scaler:
 	veryl test --test test_hdmi_480p_timing_and_scaling --no-capture
 
+test-ppu-registers:
+	veryl test --test test_ppu_registers_and_vram_access --no-capture
+
 test-apu:
 	veryl test --test test_apu_registers_and_status --no-capture
 
@@ -81,4 +84,4 @@ run: build
 clean:
 	rm -rf obj_dir target *.vcd *.fst *.fst.hier
 
-.PHONY: all build run clean veryl-fmt veryl-build test test-controller test-oam-dma test-bus-cpu test-bus-ppu test-memory test-i2s test-sfc-controller test-hdmi-scaler test-apu test-apu-pulse rom
+.PHONY: all build run clean veryl-fmt veryl-build test test-controller test-oam-dma test-bus-cpu test-bus-ppu test-memory test-i2s test-sfc-controller test-hdmi-scaler test-ppu-registers test-apu test-apu-pulse rom
