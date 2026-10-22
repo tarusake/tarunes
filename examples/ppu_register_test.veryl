@@ -1,4 +1,5 @@
-/* Disabled until Veryl native simulation supports runtime-indexed unpacked arrays.
+// Disabled until Veryl native simulation supports runtime-indexed unpacked arrays.
+#[ifdef(VERYLSIM_PPU_RUNTIME_INDEX)]
 #[test(test_ppu_registers_and_vram_access)]
 module test_ppu_registers_and_vram_access {
     inst clk: $tb::clock_gen;
@@ -146,4 +147,3 @@ module test_ppu_registers_and_vram_access {
         $finish();
     }
 }
-*/
