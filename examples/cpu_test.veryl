@@ -33,72 +33,98 @@ module test_cpu_program_execution {
         addr: input logic<16>,
     ) -> logic<8> {
         case (addr) {
-            16'hFFFC: { return 8'h00; }
-            16'hFFFD: { return 8'h80; }
-            16'h8000: { return 8'hA9; } // LDA #$05
-            16'h8001: { return 8'h05; }
-            16'h8002: { return 8'h69; } // ADC #$03
-            16'h8003: { return 8'h03; }
-            16'h8004: { return 8'h85; } // STA $10
-            16'h8005: { return 8'h10; }
-            16'h8006: { return 8'hA2; } // LDX #$02
-            16'h8007: { return 8'h02; }
-            16'h8008: { return 8'hE8; } // INX
-            16'h8009: { return 8'hE0; } // CPX #$03
-            16'h800A: { return 8'h03; }
-            16'h800B: { return 8'hD0; } // BNE +2 (not taken)
-            16'h800C: { return 8'h02; }
-            16'h800D: { return 8'hA0; } // LDY #$7F
-            16'h800E: { return 8'h7F; }
-            16'h800F: { return 8'h84; } // STY $11
-            16'h8010: { return 8'h11; }
-            16'h8011: { return 8'h4C; } // JMP $8011
-            16'h8012: { return 8'h11; }
-            16'h8013: { return 8'h80; }
-            default  : { return 0; }
+            16'hFFFC: {
+                return 8'h00;
+            }
+            16'hFFFD: {
+                return 8'h80;
+            }
+            16'h8000: {
+                return 8'hA9;
+            } // LDA #$05
+            16'h8001: {
+                return 8'h05;
+            }
+            16'h8002: {
+                return 8'h69;
+            } // ADC #$03
+            16'h8003: {
+                return 8'h03;
+            }
+            16'h8004: {
+                return 8'h85;
+            } // STA $10
+            16'h8005: {
+                return 8'h10;
+            }
+            16'h8006: {
+                return 8'hA2;
+            } // LDX #$02
+            16'h8007: {
+                return 8'h02;
+            }
+            16'h8008: {
+                return 8'hE8;
+            } // INX
+            16'h8009: {
+                return 8'hE0;
+            } // CPX #$03
+            16'h800A: {
+                return 8'h03;
+            }
+            16'h800B: {
+                return 8'hD0;
+            } // BNE +2 (not taken)
+            16'h800C: {
+                return 8'h02;
+            }
+            16'h800D: {
+                return 8'hA0;
+            } // LDY #$7F
+            16'h800E: {
+                return 8'h7F;
+            }
+            16'h800F: {
+                return 8'h84;
+            } // STY $11
+            16'h8010: {
+                return 8'h11;
+            }
+            16'h8011: {
+                return 8'h4C;
+            } // JMP $8011
+            16'h8012: {
+                return 8'h11;
+            }
+            16'h8013: {
+                return 8'h80;
+            }
+            default: {
+                return 0;
+            }
         }
     }
 
     always_ff (clk, rst) {
         if_reset {
-            cpubus.rdata = 0;
+            cpubus.rdata  = 0;
             write_10_seen = 0;
             write_10_data = 0;
             write_11_seen = 0;
             write_11_data = 0;
-            trace_cycle = 0;
+            trace_cycle   = 0;
         } else {
-            trace_cycle = trace_cycle + 1;
+            trace_cycle  = trace_cycle + 1;
             cpubus.rdata = program_data(cpubus.addr);
             if (stall) {
-                $display(
-                    "CPU cycle=%d STALL pc=%h",
-                    trace_cycle,
-                    debug_pc,
-                );
+                $display("CPU cycle=%d STALL pc=%h", trace_cycle, debug_pc);
             } else if (cpubus.wen) {
-                $display(
-                    "CPU cycle=%d WRITE pc=%h addr=%h data=%h",
-                    trace_cycle,
-                    debug_pc,
-                    cpubus.addr,
-                    cpubus.wdata,
-                );
+                $display("CPU cycle=%d WRITE pc=%h addr=%h data=%h", trace_cycle, debug_pc, cpubus.addr, cpubus.wdata);
             } else {
-                $display(
-                    "CPU cycle=%d READ  pc=%h addr=%h data=%h",
-                    trace_cycle,
-                    debug_pc,
-                    cpubus.addr,
-                    cpubus.rdata,
-                );
+                $display("CPU cycle=%d READ  pc=%h addr=%h data=%h", trace_cycle, debug_pc, cpubus.addr, cpubus.rdata);
             }
             if (logic_analizer[15]) {
-                $display(
-                    "CPU instruction: pc=%h opcode=%h",
-                    debug_pc,
-                    logic_analizer[7:0],
-                );
+                $display("CPU instruction: pc=%h opcode=%h", debug_pc, logic_analizer[7:0]);
             }
             if (cpubus.wen && cpubus.addr == 16'h0010) {
                 write_10_seen = 1;

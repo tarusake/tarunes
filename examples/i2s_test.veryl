@@ -1,7 +1,7 @@
 #[test(test_i2s_frame)]
 module test_i2s_frame {
     inst clk: $tb::clock_gen;
-    inst rst: $tb::reset_gen (clk);
+    inst rst: $tb::reset_gen ( clk );
 
     var sample    : logic<8>;
     var bclk      : logic   ;
@@ -21,7 +21,7 @@ module test_i2s_frame {
 
     function check_bit (
         index   : input logic<4>,
-        expected: input logic,
+        expected: input logic   ,
     ) {
         // Each serialized bit is updated on every BCLK falling edge.
         clk.next(18);

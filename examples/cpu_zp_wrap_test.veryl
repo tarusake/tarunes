@@ -1,50 +1,110 @@
 #[test(test_cpu_zero_page_wrap)]
 module test_cpu_zero_page_wrap {
-    inst clk: $tb::clock_gen; inst rst: $tb::reset_gen (clk);
-    var stall: logic; var nmi: logic; var halt: logic;
-    var debug_pc: logic<16>; var logic_analizer: logic<16>;
-    var checks: logic<2>; var read_01: logic; var read_ff: logic; var read_00: logic;
+    inst clk: $tb::clock_gen;
+    inst rst: $tb::reset_gen ( clk );
+    var stall         : logic    ;
+    var nmi           : logic    ;
+    var halt          : logic    ;
+    var debug_pc      : logic<16>;
+    var logic_analizer: logic<16>;
+    var checks        : logic<2> ;
+    var read_01       : logic    ;
+    var read_ff       : logic    ;
+    var read_00       : logic    ;
     inst cpubus: bus_if::<8, 16>;
-    inst dut: cpu (clk: clk, rst: rst, stall: stall, nmi: nmi, halt: halt,
-        debug_pc: debug_pc, logic_analizer: logic_analizer, cpubus: cpubus,);
-    function mem_data (addr: input logic<16>) -> logic<8> {
+    inst dut: cpu (
+        clk           : clk           ,
+        rst           : rst           ,
+        stall         : stall         ,
+        nmi           : nmi           ,
+        halt          : halt          ,
+        debug_pc      : debug_pc      ,
+        logic_analizer: logic_analizer,
+        cpubus        : cpubus        ,
+    );
+    function mem_data (
+        addr: input logic<16>,
+    ) -> logic<8> {
         case (addr) {
-            16'hFFFC: return 8'h00; 16'hFFFD: return 8'h80;
-            16'h8000: return 8'hA2; 16'h8001: return 8'h02;
-            16'h8002: return 8'hA0; 16'h8003: return 8'h01;
-            16'h8004: return 8'hB5; 16'h8005: return 8'hFF; // LDA $FF,X -> $01
-            16'h8006: return 8'h85; 16'h8007: return 8'h20;
-            16'h8008: return 8'hA1; 16'h8009: return 8'hFD; // LDA ($FD,X), ptr at $FF/$00
-            16'h800A: return 8'h85; 16'h800B: return 8'h21;
-            16'h800C: return 8'hB1; 16'h800D: return 8'hFF; // LDA ($FF),Y
-            16'h800E: return 8'h85; 16'h800F: return 8'h22;
-            16'h8010: return 8'h4C; 16'h8011: return 8'h10; 16'h8012: return 8'h80;
-            16'h0001: return 8'hA1; 16'h00FF: return 8'h00; 16'h0000: return 8'h12;
-            16'h1200: return 8'hB2; 16'h1201: return 8'hC3;
-            default: return 0;
+            16'hFFFC: return 8'h00;
+            16'hFFFD: return 8'h80;
+            16'h8000: return 8'hA2;
+            16'h8001: return 8'h02;
+            16'h8002: return 8'hA0;
+            16'h8003: return 8'h01;
+            16'h8004: return 8'hB5;
+            16'h8005: return 8'hFF; // LDA $FF,X -> $01
+            16'h8006: return 8'h85;
+            16'h8007: return 8'h20;
+            16'h8008: return 8'hA1;
+            16'h8009: return 8'hFD; // LDA ($FD,X), ptr at $FF/$00
+            16'h800A: return 8'h85;
+            16'h800B: return 8'h21;
+            16'h800C: return 8'hB1;
+            16'h800D: return 8'hFF; // LDA ($FF),Y
+            16'h800E: return 8'h85;
+            16'h800F: return 8'h22;
+            16'h8010: return 8'h4C;
+            16'h8011: return 8'h10;
+            16'h8012: return 8'h80;
+            16'h0001: return 8'hA1;
+            16'h00FF: return 8'h00;
+            16'h0000: return 8'h12;
+            16'h1200: return 8'hB2;
+            16'h1201: return 8'hC3;
+            default : return 0;
         }
     }
     always_ff (clk, rst) {
-        if_reset { cpubus.rdata = 0; checks = 0; read_01 = 0; read_ff = 0; read_00 = 0; }
-        else {
+        if_reset {
+            cpubus.rdata = 0;
+            checks       = 0;
+            read_01      = 0;
+            read_ff      = 0;
+            read_00      = 0;
+        } else {
             cpubus.rdata = mem_data(cpubus.addr);
-            if (!cpubus.wen && cpubus.addr == 16'h0001) { read_01 = 1; }
-            if (!cpubus.wen && cpubus.addr == 16'h00FF) { read_ff = 1; }
-            if (!cpubus.wen && cpubus.addr == 16'h0000) { read_00 = 1; }
+            if (!cpubus.wen && cpubus.addr == 16'h0001) {
+                read_01 = 1;
+            }
+            if (!cpubus.wen && cpubus.addr == 16'h00FF) {
+                read_ff = 1;
+            }
+            if (!cpubus.wen && cpubus.addr == 16'h0000) {
+                read_00 = 1;
+            }
             if (cpubus.wen) {
                 case (cpubus.addr) {
-                    16'h0020: { $assert(cpubus.wdata == 8'hA1); checks = checks + 1; }
-                    16'h0021: { $assert(cpubus.wdata == 8'hB2); checks = checks + 1; }
-                    16'h0022: { $assert(cpubus.wdata == 8'hC3); checks = checks + 1; }
-                    default: { $assert(0); }
+                    16'h0020: {
+                        $assert(cpubus.wdata == 8'hA1);
+                        checks = checks + 1;
+                    }
+                    16'h0021: {
+                        $assert(cpubus.wdata == 8'hB2);
+                        checks = checks + 1;
+                    }
+                    16'h0022: {
+                        $assert(cpubus.wdata == 8'hC3);
+                        checks = checks + 1;
+                    }
+                    default: {
+                        $assert(0);
+                    }
                 }
                 $display("Zero-page wrap result: addr=%h data=%h", cpubus.addr, cpubus.wdata);
             }
         }
     }
     initial {
-        stall = 0; nmi = 0; halt = 0; rst.assert(); clk.next(130);
+        stall = 0;
+        nmi   = 0;
+        halt  = 0;
+        rst.assert();
+        clk.next(130);
         $display("Zero-page wrap summary: pc=%h checks=%d reads=%b%b%b", debug_pc, checks, read_01, read_ff, read_00);
-        $assert(checks == 3); $assert(read_01 && read_ff && read_00); $assert(debug_pc == 16'h8010); $finish();
+        $assert(checks == 3);
+        $assert(read_01 && read_ff && read_00);
+        $assert(debug_pc == 16'h8010);
+        $finish();
     }
 }

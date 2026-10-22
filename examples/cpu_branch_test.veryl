@@ -1,59 +1,134 @@
 #[test(test_cpu_branch_conditions)]
 module test_cpu_branch_conditions {
     inst clk: $tb::clock_gen;
-    inst rst: $tb::reset_gen (clk);
-    var stall: logic; var nmi: logic; var halt: logic;
-    var debug_pc: logic<16>; var logic_analizer: logic<16>;
+    inst rst: $tb::reset_gen ( clk );
+    var stall         : logic    ;
+    var nmi           : logic    ;
+    var halt          : logic    ;
+    var debug_pc      : logic<16>;
+    var logic_analizer: logic<16>;
     inst cpubus: bus_if::<8, 16>;
     inst dut: cpu (
-        clk: clk, rst: rst, stall: stall, nmi: nmi, halt: halt,
-        debug_pc: debug_pc, logic_analizer: logic_analizer, cpubus: cpubus,
+        clk           : clk           ,
+        rst           : rst           ,
+        stall         : stall         ,
+        nmi           : nmi           ,
+        halt          : halt          ,
+        debug_pc      : debug_pc      ,
+        logic_analizer: logic_analizer,
+        cpubus        : cpubus        ,
     );
-    function rom (addr: input logic<16>) -> logic<8> {
+    function rom (
+        addr: input logic<16>,
+    ) -> logic<8> {
         case (addr) {
-            16'hFFFC: return 8'h00; 16'hFFFD: return 8'h80;
-            16'h8000: return 8'hA0; 16'h8001: return 8'h00; // LDY #0
+            16'hFFFC: return 8'h00;
+            16'hFFFD: return 8'h80;
+            16'h8000: return 8'hA0;
+            16'h8001: return 8'h00; // LDY #0
             16'h8002: return 8'h18; // CLC
-            16'h8003: return 8'h90; 16'h8004: return 8'h01; 16'h8005: return 8'h00; 16'h8006: return 8'hC8; // BCC taken
-            16'h8007: return 8'hB0; 16'h8008: return 8'h01; 16'h8009: return 8'hC8; // BCS not taken
+            16'h8003: return 8'h90;
+            16'h8004: return 8'h01;
+            16'h8005: return 8'h00;
+            16'h8006: return 8'hC8; // BCC taken
+            16'h8007: return 8'hB0;
+            16'h8008: return 8'h01;
+            16'h8009: return 8'hC8; // BCS not taken
             16'h800A: return 8'h38; // SEC
-            16'h800B: return 8'hB0; 16'h800C: return 8'h01; 16'h800D: return 8'h00; 16'h800E: return 8'hC8; // BCS taken
-            16'h800F: return 8'h90; 16'h8010: return 8'h01; 16'h8011: return 8'hC8; // BCC not taken
-            16'h8012: return 8'hA9; 16'h8013: return 8'h00; // Z=1
-            16'h8014: return 8'hF0; 16'h8015: return 8'h01; 16'h8016: return 8'h00; 16'h8017: return 8'hEA;
-            16'h8018: return 8'hD0; 16'h8019: return 8'h01; 16'h801A: return 8'hC8;
-            16'h801B: return 8'hA9; 16'h801C: return 8'h01; // Z=0
-            16'h801D: return 8'hD0; 16'h801E: return 8'h01; 16'h801F: return 8'h00; 16'h8020: return 8'hC8;
-            16'h8021: return 8'hF0; 16'h8022: return 8'h01; 16'h8023: return 8'hC8;
-            16'h8024: return 8'hA9; 16'h8025: return 8'h80; // N=1
-            16'h8026: return 8'h30; 16'h8027: return 8'h01; 16'h8028: return 8'h00; 16'h8029: return 8'hEA;
-            16'h802A: return 8'h10; 16'h802B: return 8'h01; 16'h802C: return 8'hC8;
-            16'h802D: return 8'hA9; 16'h802E: return 8'h01; // N=0
-            16'h802F: return 8'h10; 16'h8030: return 8'h01; 16'h8031: return 8'h00; 16'h8032: return 8'hC8;
-            16'h8033: return 8'h30; 16'h8034: return 8'h01; 16'h8035: return 8'hC8;
+            16'h800B: return 8'hB0;
+            16'h800C: return 8'h01;
+            16'h800D: return 8'h00;
+            16'h800E: return 8'hC8; // BCS taken
+            16'h800F: return 8'h90;
+            16'h8010: return 8'h01;
+            16'h8011: return 8'hC8; // BCC not taken
+            16'h8012: return 8'hA9;
+            16'h8013: return 8'h00; // Z=1
+            16'h8014: return 8'hF0;
+            16'h8015: return 8'h01;
+            16'h8016: return 8'h00;
+            16'h8017: return 8'hEA;
+            16'h8018: return 8'hD0;
+            16'h8019: return 8'h01;
+            16'h801A: return 8'hC8;
+            16'h801B: return 8'hA9;
+            16'h801C: return 8'h01; // Z=0
+            16'h801D: return 8'hD0;
+            16'h801E: return 8'h01;
+            16'h801F: return 8'h00;
+            16'h8020: return 8'hC8;
+            16'h8021: return 8'hF0;
+            16'h8022: return 8'h01;
+            16'h8023: return 8'hC8;
+            16'h8024: return 8'hA9;
+            16'h8025: return 8'h80; // N=1
+            16'h8026: return 8'h30;
+            16'h8027: return 8'h01;
+            16'h8028: return 8'h00;
+            16'h8029: return 8'hEA;
+            16'h802A: return 8'h10;
+            16'h802B: return 8'h01;
+            16'h802C: return 8'hC8;
+            16'h802D: return 8'hA9;
+            16'h802E: return 8'h01; // N=0
+            16'h802F: return 8'h10;
+            16'h8030: return 8'h01;
+            16'h8031: return 8'h00;
+            16'h8032: return 8'hC8;
+            16'h8033: return 8'h30;
+            16'h8034: return 8'h01;
+            16'h8035: return 8'hC8;
             16'h8036: return 8'hB8; // CLV
-            16'h8037: return 8'h50; 16'h8038: return 8'h01; 16'h8039: return 8'h00; 16'h803A: return 8'hC8;
-            16'h803B: return 8'h70; 16'h803C: return 8'h01; 16'h803D: return 8'hC8;
-            16'h803E: return 8'h18; 16'h803F: return 8'hA9; 16'h8040: return 8'h7F;
-            16'h8041: return 8'h69; 16'h8042: return 8'h01; // V=1
-            16'h8043: return 8'h70; 16'h8044: return 8'h01; 16'h8045: return 8'h00; 16'h8046: return 8'hC8;
-            16'h8047: return 8'h50; 16'h8048: return 8'h01; 16'h8049: return 8'hC8;
-            16'h804A: return 8'hA2; 16'h804B: return 8'h03;
-            16'h804C: return 8'hCA; 16'h804D: return 8'hD0; 16'h804E: return 8'hFD; // backward BNE
-            16'h804F: return 8'h4C; 16'h8050: return 8'h4F; 16'h8051: return 8'h80;
-            default: return 0;
+            16'h8037: return 8'h50;
+            16'h8038: return 8'h01;
+            16'h8039: return 8'h00;
+            16'h803A: return 8'hC8;
+            16'h803B: return 8'h70;
+            16'h803C: return 8'h01;
+            16'h803D: return 8'hC8;
+            16'h803E: return 8'h18;
+            16'h803F: return 8'hA9;
+            16'h8040: return 8'h7F;
+            16'h8041: return 8'h69;
+            16'h8042: return 8'h01; // V=1
+            16'h8043: return 8'h70;
+            16'h8044: return 8'h01;
+            16'h8045: return 8'h00;
+            16'h8046: return 8'hC8;
+            16'h8047: return 8'h50;
+            16'h8048: return 8'h01;
+            16'h8049: return 8'hC8;
+            16'h804A: return 8'hA2;
+            16'h804B: return 8'h03;
+            16'h804C: return 8'hCA;
+            16'h804D: return 8'hD0;
+            16'h804E: return 8'hFD; // backward BNE
+            16'h804F: return 8'h4C;
+            16'h8050: return 8'h4F;
+            16'h8051: return 8'h80;
+            default : return 0;
         }
     }
     always_ff (clk, rst) {
-        if_reset { cpubus.rdata = 0; }
-        else {
+        if_reset {
+            cpubus.rdata = 0;
+        } else {
             cpubus.rdata = rom(cpubus.addr);
-            if (logic_analizer[15]) { $display("Branch instruction: pc=%h opcode=%h", debug_pc, logic_analizer[7:0]); }
+            if (logic_analizer[15]) {
+                $display("Branch instruction: pc=%h opcode=%h", debug_pc, logic_analizer[7:0]);
+            }
         }
     }
     initial {
-        stall = 0; nmi = 0; halt = 0; rst.assert(); clk.next(240);
+        stall = 0;
+        nmi   = 0;
+        halt  = 0;
+        rst.assert();
+        clk.next(240);
         $display("Branch summary: pc=%h y=%h x=%h", debug_pc, dut.reg_y, dut.reg_x);
-        $assert(dut.reg_y == 8'd14); $assert(dut.reg_x == 0); $assert(debug_pc == 16'h804F); $finish();
+        $assert(dut.reg_y == 8'd14);
+        $assert(dut.reg_x == 0);
+        $assert(debug_pc == 16'h804F);
+        $finish();
     }
 }

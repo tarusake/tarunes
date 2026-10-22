@@ -1,7 +1,7 @@
 #[test(test_memory_read_write)]
 module test_memory_read_write {
     inst clk: $tb::clock_gen;
-    inst rst: $tb::reset_gen (clk);
+    inst rst: $tb::reset_gen ( clk );
 
     var stall: logic;
 
@@ -34,10 +34,10 @@ module test_memory_read_write {
         $assert(membus.rdata == 8'hA5);
 
         // Neither writes nor the registered read output advance while stalled.
-        stall         = 1;
-        membus.addr   = 4'h4;
-        membus.wen    = 1;
-        membus.wdata  = 8'h5A;
+        stall        = 1;
+        membus.addr  = 4'h4;
+        membus.wen   = 1;
+        membus.wdata = 8'h5A;
         clk.next();
         $display("Memory stalled: held_data=%h", membus.rdata);
         $assert(membus.rdata == 8'hA5);

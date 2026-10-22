@@ -31,11 +31,11 @@ module test_apu_registers_and_status {
     }
 
     initial {
-        stall         = 0;
-        bus_stall     = 0;
-        cpubus.addr   = 0;
-        cpubus.wen    = 0;
-        cpubus.wdata  = 0;
+        stall        = 0;
+        bus_stall    = 0;
+        cpubus.addr  = 0;
+        cpubus.wen   = 0;
+        cpubus.wdata = 0;
 
         rst.assert();
         $display("APU reset: sample=%h status=%h", audio_sample, cpubus.rdata);
@@ -54,7 +54,12 @@ module test_apu_registers_and_status {
         write_register(5'h02, 8'h34);
         write_register(5'h03, 8'h08);
         clk.next();
-        $display("APU pulse1: period=%h length=%d status=%h", dut.pulse1_timer_period, dut.pulse1_length_counter, cpubus.rdata);
+        $display(
+            "APU pulse1: period=%h length=%d status=%h",
+            dut.pulse1_timer_period,
+            dut.pulse1_length_counter,
+            cpubus.rdata,
+        );
         $assert(dut.pulse1_timer_period == 11'h034);
         $assert(dut.pulse1_length_counter == 8'd254);
         $assert(cpubus.rdata[0]);

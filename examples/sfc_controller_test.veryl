@@ -1,7 +1,7 @@
 #[test(test_sfc_controller_poll)]
 module test_sfc_controller_poll {
     inst clk: $tb::clock_gen;
-    inst rst: $tb::reset_gen (clk);
+    inst rst: $tb::reset_gen ( clk );
 
     var sfc_data : logic   ;
     var sfc_latch: logic   ;
@@ -23,7 +23,7 @@ module test_sfc_controller_poll {
 
     function send_next_bit (
         index  : input logic<5>,
-        pressed: input logic,
+        pressed: input logic   ,
     ) {
         sfc_data = !pressed;
         clk.next(3);

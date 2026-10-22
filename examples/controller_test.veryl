@@ -22,7 +22,7 @@ module test_controller_serial_read {
 
     function read_controller1 (
         index   : input logic<4>,
-        expected: input logic,
+        expected: input logic   ,
     ) {
         cpubus.addr = 0;
         cpubus.wen  = 0;

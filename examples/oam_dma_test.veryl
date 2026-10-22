@@ -1,7 +1,7 @@
 #[test(test_oam_dma_transfer)]
 module test_oam_dma_transfer {
     inst clk: $tb::clock_gen;
-    inst rst: $tb::reset_gen (clk);
+    inst rst: $tb::reset_gen ( clk );
 
     var stall: logic   ;
     var start: logic   ;

@@ -1,7 +1,7 @@
 #[test(test_bus_ppu_decode)]
 module test_bus_ppu_decode {
     inst clk: $tb::clock_gen;
-    inst rst: $tb::reset_gen (clk);
+    inst rst: $tb::reset_gen ( clk );
 
     var stall: logic;
 
@@ -19,12 +19,12 @@ module test_bus_ppu_decode {
     );
 
     initial {
-        stall          = 0;
-        ppubus.addr    = 0;
-        ppubus.wen     = 0;
-        ppubus.wdata   = 0;
-        crombus.rdata  = 8'hC1;
-        vrambus.rdata  = 8'hD2;
+        stall         = 0;
+        ppubus.addr   = 0;
+        ppubus.wen    = 0;
+        ppubus.wdata  = 0;
+        crombus.rdata = 8'hC1;
+        vrambus.rdata = 8'hD2;
 
         rst.assert();
 

@@ -1,7 +1,7 @@
 #[test(test_bus_cpu_decode)]
 module test_bus_cpu_decode {
     inst clk: $tb::clock_gen;
-    inst rst: $tb::reset_gen (clk);
+    inst rst: $tb::reset_gen ( clk );
 
     var stall    : logic   ;
     var dma_busy : logic   ;
@@ -37,22 +37,22 @@ module test_bus_cpu_decode {
     );
 
     initial {
-        stall               = 0;
-        dma_busy            = 0;
-        cpubus.addr         = 0;
-        cpubus.wen          = 0;
-        cpubus.wdata        = 0;
-        cpu_ppubus.rdata    = 8'h22;
-        dma_ppubus.addr     = 3'h4;
-        dma_ppubus.wen      = 1;
-        dma_ppubus.wdata    = 8'hDD;
-        apubus.rdata        = 8'h44;
-        ctrlbus.rdata       = 8'h66;
-        dma_wrambus.addr    = 11'h321;
-        dma_wrambus.wen     = 0;
-        dma_wrambus.wdata   = 8'hCC;
-        wrambus.rdata       = 8'h88;
-        prombus.rdata       = 8'hAA;
+        stall             = 0;
+        dma_busy          = 0;
+        cpubus.addr       = 0;
+        cpubus.wen        = 0;
+        cpubus.wdata      = 0;
+        cpu_ppubus.rdata  = 8'h22;
+        dma_ppubus.addr   = 3'h4;
+        dma_ppubus.wen    = 1;
+        dma_ppubus.wdata  = 8'hDD;
+        apubus.rdata      = 8'h44;
+        ctrlbus.rdata     = 8'h66;
+        dma_wrambus.addr  = 11'h321;
+        dma_wrambus.wen   = 0;
+        dma_wrambus.wdata = 8'hCC;
+        wrambus.rdata     = 8'h88;
+        prombus.rdata     = 8'hAA;
 
         rst.assert();
 
@@ -94,7 +94,7 @@ module test_bus_cpu_decode {
         clk.next();
         $assert(!dma_start);
 
-        dma_busy = 1;
+        dma_busy   = 1;
         cpubus.wen = 0;
         $display("CPU bus DMA routing: wram=%h ppu=%h", wrambus.addr, cpu_ppubus.addr);
         $assert(cpu_halt);
