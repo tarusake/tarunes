@@ -21,7 +21,10 @@ tarunes/
 ├── src/
 │   ├── top.veryl       # トップモジュール
 │   ├── cpu.veryl       # CPU コア
+│   ├── cpu_pkg.veryl   # CPU 命令・デコード定義
 │   ├── ppu.veryl       # Picture Processing Unit (PPU)
+│   ├── ppu_pkg.veryl   # PPU レジスタ・OAM・アドレス定義
+│   ├── nes_pkg.veryl   # NES 共通アドレスマップ・タイミング定数
 │   ├── apu.veryl       # Audio Processing Unit (APU)
 │   ├── i2s.veryl       # I2S 送信
 │   ├── hdmi_480p_scaler.veryl

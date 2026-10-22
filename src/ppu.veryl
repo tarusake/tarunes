@@ -19,49 +19,8 @@ module ppu (
     debug_palette_write_addr: output  logic                  <5>,
     debug_palette_write_data: output  logic                  <8>,
 ) {
-    struct ppu_ctrl_t {
-        nmi_enable              : logic   ,
-        master_slave            : logic   ,
-        sprite_size             : logic   ,
-        background_pattern_table: logic   ,
-        sprite_pattern_table    : logic   ,
-        vram_increment          : logic   ,
-        base_nametable          : logic<2>,
-    }
-
-    struct ppu_mask_t {
-        emphasize_blue      : logic,
-        emphasize_green     : logic,
-        emphasize_red       : logic,
-        show_sprites        : logic,
-        show_background     : logic,
-        show_sprites_left   : logic,
-        show_background_left: logic,
-        greyscale           : logic,
-    }
-
-    struct ppu_status_t {
-        vblank         : logic   ,
-        sprite0_hit    : logic   ,
-        sprite_overflow: logic   ,
-        open_bus       : logic<5>,
-    }
-
-    struct oam_t {
-        y   : logic<8>,
-        tile: logic<8>,
-        attr: logic<8>,
-        x   : logic<8>,
-    }
-
-    const PPUCTRL_ADDR  : logic<3> = 3'd0;
-    const PPUMASK_ADDR  : logic<3> = 3'd1;
-    const PPUSTATUS_ADDR: logic<3> = 3'd2;
-    const OAMADDR_ADDR  : logic<3> = 3'd3;
-    const OAMDATA_ADDR  : logic<3> = 3'd4;
-    const PPUSCROLL_ADDR: logic<3> = 3'd5;
-    const PPUADDR_ADDR  : logic<3> = 3'd6;
-    const PPUDATA_ADDR  : logic<3> = 3'd7;
+    import nes_pkg::*;
+    import ppu_pkg::*;
 
     // VRAM Address Latch
     var reg_ctrl     : ppu_ctrl_t      ;
@@ -84,70 +43,6 @@ module ppu (
     // ppubus.address mux
     var ppu_addr_cpu   : logic<14>;
     var ppu_addr_render: logic<14>;
-
-    // パレット背景色 $3F10/$14/$18/$1C は $3F00/$04/$08/$0C のミラー。
-    function palette_addr (
-        addr: input logic<5>,
-    ) -> logic<5> {
-        if (addr == 5'h10 || addr == 5'h14 || addr == 5'h18 || addr == 5'h1C) {
-            return addr - 5'h10;
-        } else {
-            return addr;
-        }
-    }
-
-    function is_palette_addr (
-        addr: input logic<16>,
-    ) -> logic {
-        return addr[15:8] == 8'h3F;
-    }
-
-    function bg_nt_addr (
-        v: input logic<16>,
-    ) -> logic<14> {
-        return 14'h2000 + v[11:0];
-    }
-
-    function bg_attr_addr (
-        v: input logic<16>,
-    ) -> logic<14> {
-        return 14'h23C0 + {2'b00, v[11:10], 10'h000} + {5'b00000, v[9:7], 3'b000} + {7'b0000000, v[4:2]};
-    }
-
-    function increment_bg_x (
-        v: input logic<16>,
-    ) -> logic<16> {
-        var ret: logic<16>;
-        ret = v;
-        if (ret[4:0] == 5'd31) {
-            ret[4:0] = 0;
-            ret[10]  = ~ret[10];
-        } else {
-            ret[4:0] = ret[4:0] + 1;
-        }
-        return ret;
-    }
-
-    function increment_bg_y (
-        v: input logic<16>,
-    ) -> logic<16> {
-        var ret: logic<16>;
-        ret = v;
-        if (ret[14:12] != 3'd7) {
-            ret[14:12] = ret[14:12] + 1;
-        } else {
-            ret[14:12] = 0;
-            if (ret[9:5] == 5'd29) {
-                ret[9:5] = 0;
-                ret[11]  = ~ret[11];
-            } else if (ret[9:5] == 5'd31) {
-                ret[9:5] = 0;
-            } else {
-                ret[9:5] = ret[9:5] + 1;
-            }
-        }
-        return ret;
-    }
 
     always_comb {
         ppubus.addr  = ppu_addr_render;
@@ -192,9 +87,9 @@ module ppu (
                 }
             }
 
-            if (scanline == 241 && cycle == 0) {
+            if (scanline == VBLANK_SCANLINE && cycle == 0) {
                 reg_status.vblank = 1;
-            } else if (scanline == 261 && cycle == 0) {
+            } else if (scanline == PRE_RENDER_SCANLINE && cycle == 0) {
                 reg_status.vblank      = 0;
                 reg_status.sprite0_hit = 0;
             } else if (sprite_zero_hit) {
@@ -303,7 +198,8 @@ module ppu (
                 }
             }
 
-            if ((reg_mask.show_background || reg_mask.show_sprites) && (scanline <: 240 || scanline == 261)) {
+            if ((reg_mask.show_background || reg_mask.show_sprites)
+                && (scanline <: VISIBLE_SCANLINES || scanline == PRE_RENDER_SCANLINE)) {
                 if (cycle == 255) {
                     reg_v = increment_bg_y(increment_bg_x(reg_v));
                 } else if ((cycle <: 256 || (cycle >= 320 && cycle <: 336)) && cycle[2:0] == 7) {
@@ -311,7 +207,7 @@ module ppu (
                 } else if (cycle == 256) {
                     reg_v[10]  = reg_t[10];
                     reg_v[4:0] = reg_t[4:0];
-                } else if (scanline == 261 && cycle >= 280 && cycle <: 305) {
+                } else if (scanline == PRE_RENDER_SCANLINE && cycle >= 280 && cycle <: 305) {
                     reg_v[14:11] = reg_t[14:11];
                     reg_v[9:5]   = reg_t[9:5];
                 }
@@ -333,14 +229,14 @@ module ppu (
                 frame_wait = 0;
             }
         } else {
-            if (scanline == 241 && cycle == 0 && reg_ctrl.nmi_enable) {
+            if (scanline == VBLANK_SCANLINE && cycle == 0 && reg_ctrl.nmi_enable) {
                 nmi = 1;
             } else {
                 nmi = 0;
             }
 
-            if (cycle == 340) {
-                if (scanline == 261) {
+            if (cycle == LAST_PPU_CYCLE) {
+                if (scanline == PRE_RENDER_SCANLINE) {
                     frame_wait = 1;
                 } else {
                     cycle    = 0;
@@ -356,7 +252,7 @@ module ppu (
     assign visible = cycle <: 256 && scanline <: 240;
 
     var sprite_eval_line: logic<9>;
-    assign sprite_eval_line = if (scanline == 261) ? 0 : scanline + 1;
+    assign sprite_eval_line = if (scanline == PRE_RENDER_SCANLINE) ? 0 : scanline + 1;
 
     // キャラクタROMのアドレス
     var chr_addr: logic<14>;
@@ -365,7 +261,7 @@ module ppu (
     assign rendering_enabled = reg_mask.show_background || reg_mask.show_sprites;
 
     var bg_fetch_active: logic;
-    assign bg_fetch_active = rendering_enabled && (scanline <: 240 || scanline == 261)
+    assign bg_fetch_active = rendering_enabled && (scanline <: VISIBLE_SCANLINES || scanline == PRE_RENDER_SCANLINE)
         && (cycle <: 256 || (cycle >= 320 && cycle <: 336));
 
     // Background fetch latches and shifters

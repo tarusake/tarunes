@@ -15,6 +15,7 @@ module bus_cpu (
     wrambus    : modport bus_if::<8, 11>::master   ,
     prombus    : modport bus_if::<8, 15>::master   ,
 ) {
+    import nes_pkg::*;
 
     var sel_ppu       : logic;
     var sel_prom      : logic;
@@ -25,13 +26,13 @@ module bus_cpu (
     var oamdma_write_d: logic;
 
     // Addr sel
-    assign sel_wram   = cpubus.addr <: 16'h2000;
-    assign sel_ppu    = cpubus.addr >= 16'h2000 && cpubus.addr <= 16'h2007;
-    assign sel_ctrl   = cpubus.addr == 16'h4016 || (cpubus.addr == 16'h4017 && !cpubus.wen);
-    assign sel_oamdma = cpubus.addr == 16'h4014;
-    assign sel_apu    = (cpubus.addr >= 16'h4000 && cpubus.addr <= 16'h4015 && !sel_oamdma)
-        || (cpubus.addr == 16'h4017 && cpubus.wen);
-    assign sel_prom   = cpubus.addr >= 16'h8000;
+    assign sel_wram   = cpubus.addr <= CPU_RAM_END;
+    assign sel_ppu    = cpubus.addr >= PPU_REG_BASE && cpubus.addr <= PPU_REG_END;
+    assign sel_ctrl   = cpubus.addr == CONTROLLER1_ADDR || (cpubus.addr == CONTROLLER2_ADDR && !cpubus.wen);
+    assign sel_oamdma = cpubus.addr == OAM_DMA_ADDR;
+    assign sel_apu    = (cpubus.addr >= APU_REG_BASE && cpubus.addr <= APU_STATUS_ADDR && !sel_oamdma)
+        || (cpubus.addr == CONTROLLER2_ADDR && cpubus.wen);
+    assign sel_prom   = cpubus.addr >= PRG_ROM_BASE;
     assign dma_start  = cpubus.wen && sel_oamdma && !oamdma_write_d && !dma_busy;
     assign dma_page   = cpubus.wdata;
     // $4014の書き込みサイクルは完了させ、DMAがbusyになった次のサイクルからCPUを停止する。

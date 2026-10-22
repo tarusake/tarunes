@@ -37,8 +37,7 @@ module top #(
     debug_palette_write_addr: output logic<5> ,
     debug_palette_write_data: output logic<8> ,
 ) {
-    const AUDIO_SAMPLES_PER_FRAME: logic<10> = 10'd782;
-    const AUDIO_FRAME_CYCLES     : logic<17> = 17'd89342;
+    import nes_pkg::*;
 
     inst cpubus     : bus_if::<8, 16>;
     inst cpu_ppubus : bus_if::<8, 3>;
@@ -225,7 +224,7 @@ module top #(
         cpubus          : ctrlbus         ,
     );
 
-    assign ctrl_sel = cpubus.addr == 16'h4016 || (cpubus.addr == 16'h4017 && !cpubus.wen);
+    assign ctrl_sel = cpubus.addr == CONTROLLER1_ADDR || (cpubus.addr == CONTROLLER2_ADDR && !cpubus.wen);
 
     inst ppu_inst: ppu (
         clk                     : clk                     ,
