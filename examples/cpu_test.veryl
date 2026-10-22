@@ -12,6 +12,7 @@ module test_cpu_program_execution {
     var write_10_data : logic<8> ;
     var write_11_seen : logic    ;
     var write_11_data : logic<8> ;
+    var trace_cycle   : logic<8> ;
 
     inst cpubus: bus_if::<8, 16>;
 
@@ -65,8 +66,40 @@ module test_cpu_program_execution {
             write_10_data = 0;
             write_11_seen = 0;
             write_11_data = 0;
+            trace_cycle = 0;
         } else {
+            trace_cycle = trace_cycle + 1;
             cpubus.rdata = program_data(cpubus.addr);
+            if (stall) {
+                $display(
+                    "CPU cycle=%d STALL pc=%h",
+                    trace_cycle,
+                    debug_pc,
+                );
+            } else if (cpubus.wen) {
+                $display(
+                    "CPU cycle=%d WRITE pc=%h addr=%h data=%h",
+                    trace_cycle,
+                    debug_pc,
+                    cpubus.addr,
+                    cpubus.wdata,
+                );
+            } else {
+                $display(
+                    "CPU cycle=%d READ  pc=%h addr=%h data=%h",
+                    trace_cycle,
+                    debug_pc,
+                    cpubus.addr,
+                    cpubus.rdata,
+                );
+            }
+            if (logic_analizer[15]) {
+                $display(
+                    "CPU instruction: pc=%h opcode=%h",
+                    debug_pc,
+                    logic_analizer[7:0],
+                );
+            }
             if (cpubus.wen && cpubus.addr == 16'h0010) {
                 write_10_seen = 1;
                 write_10_data = cpubus.wdata;
