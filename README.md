@@ -119,7 +119,15 @@ The simulator opens an SDL2 window and displays the internal 256x240 video outpu
 For a faster run without the CPU trace or waveform output:
 
 ```bash
-make run ARGS=--fast
+make run-fast
+```
+
+`run-fast` also uses an optimized simulator built without waveform tracing support.
+
+Play APU audio in real time through SDL:
+
+```bash
+make run-fast ARGS="--audio"
 ```
 
 Run another ROM:
@@ -137,12 +145,13 @@ make run ARGS="--fast --frames 10"
 Capture the HDMI 480p output instead of the internal 256x240 output:
 
 ```bash
-make run ARGS="--fast --capture-hdmi --frames 10"
+make run-fast ARGS="--capture-hdmi --frames 10"
 ```
 
 Runtime options:
 
 - `--fast`: Disable CPU trace and waveform output
+- `--audio`: Play APU audio through the SDL audio device
 - `--capture-hdmi`: Display and save the 720x480 HDMI output
 - `--frames N`: Stop after N completed frames
 - `--dump-audio PATH`: Set the WAV output path

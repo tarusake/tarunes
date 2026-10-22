@@ -1,8 +1,11 @@
 #include "Vtarunes_top.h"
 #include "Vtarunes_top___024root.h"
 #include "Vtarunes_top_tarunes___05F_bus_if___05F8___05F3.h"
+#include "Vtarunes_top_tarunes___05F_bus_if___05F8___05F16.h"
 #include "verilated.h"
+#if VM_TRACE
 #include "verilated_fst_c.h"
+#endif
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
 #include <algorithm>
@@ -674,6 +677,7 @@ int main(int argc, char** argv) {
     const char* audio_dump_path = "apu.wav";
     bool capture_hdmi = false;
     bool dump_state = false;
+    bool live_audio = false;
     for (int i = 1; i < argc; i++) {
         if (std::strcmp(argv[i], "fast") == 0 || std::strcmp(argv[i], "--fast") == 0) {
             fast_mode = true;
@@ -689,10 +693,13 @@ int main(int argc, char** argv) {
             audio_dump_path = argv[++i];
         } else if (std::strcmp(argv[i], "--dump-state") == 0) {
             dump_state = true;
+        } else if (std::strcmp(argv[i], "--audio") == 0) {
+            live_audio = true;
         }
     }
 
     Vtarunes_top* dut = new Vtarunes_top;
+    #if VM_TRACE
     VerilatedFstC* tfp = nullptr;
     if (!fast_mode) {
         Verilated::traceEverOn(true);
@@ -700,9 +707,11 @@ int main(int argc, char** argv) {
         dut->trace(tfp, 99);
         tfp->open("wave.fst");
     }
+    #endif
 
     // SDL2の初期化
-    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+    const Uint32 sdl_init_flags = SDL_INIT_VIDEO | (live_audio ? SDL_INIT_AUDIO : 0);
+    if (SDL_Init(sdl_init_flags) != 0) {
         fprintf(stderr, "SDL_Init Error: %s\n", SDL_GetError());
         exit(1);
     }
@@ -724,8 +733,9 @@ int main(int argc, char** argv) {
     }
     updateWindowTitle(window, 0, 0.0);
 
-    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1,
-                                                SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    const Uint32 renderer_flags = SDL_RENDERER_ACCELERATED |
+                                  (fast_mode ? 0 : SDL_RENDERER_PRESENTVSYNC);
+    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, renderer_flags);
     if (!renderer) {
         renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
     }
@@ -774,6 +784,22 @@ int main(int argc, char** argv) {
     int fps_sample_frame = frame_count;
     double current_fps = 0.0;
     const uint64_t PERF_FREQ = SDL_GetPerformanceFrequency();
+    SDL_AudioDeviceID audio_device = 0;
+    std::vector<int16_t> live_audio_buffer;
+    bool audio_started = false;
+    if (live_audio) {
+        SDL_AudioSpec desired{};
+        desired.freq = AUDIO_WAV_SAMPLE_RATE;
+        desired.format = AUDIO_S16SYS;
+        desired.channels = 1;
+        desired.samples = 1024;
+        audio_device = SDL_OpenAudioDevice(nullptr, 0, &desired, nullptr, 0);
+        if (audio_device == 0) {
+            std::fprintf(stderr, "SDL_OpenAudioDevice Error: %s\n", SDL_GetError());
+            return 1;
+        }
+        live_audio_buffer.reserve(512);
+    }
     WavWriter audio_dump;
     if (!audio_dump.open(audio_dump_path, AUDIO_WAV_SAMPLE_RATE)) {
         return 1;
@@ -781,6 +807,7 @@ int main(int argc, char** argv) {
     uint64_t cpu_cycle = 0;
     CpuTracer cpu_tracer;
     FILE* ppu_write_log = nullptr;
+    unsigned event_poll_countdown = 0;
     if (ppu_write_log_path != nullptr) {
         ppu_write_log = std::fopen(ppu_write_log_path, "w");
         if (ppu_write_log == nullptr) {
@@ -792,7 +819,9 @@ int main(int argc, char** argv) {
     // メインループ
     while (running) {
         SDL_Event event;
-        while (SDL_PollEvent(&event)) {
+        // Polling SDL once per emulated PPU cycle is needlessly expensive.
+        // 256 cycles is still far below one video scanline of input latency.
+        while (event_poll_countdown == 0 && SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) {
                 running = false;
             } else if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) {
@@ -820,6 +849,10 @@ int main(int argc, char** argv) {
                 }
             }
         }
+        if (event_poll_countdown == 0) {
+            event_poll_countdown = 256;
+        }
+        event_poll_countdown--;
 
         dut->frame_sync = frame_sync_pulse ? 1 : 0;
         frame_sync_pulse = false;
@@ -849,9 +882,11 @@ int main(int argc, char** argv) {
 
             dut->clk = half;
             dut->eval();
+            #if VM_TRACE
             if (tfp != nullptr) {
                 tfp->dump(Verilated::time());
             }
+            #endif
             Verilated::timeInc(1);
         }
         if (dut->rst) {
@@ -862,6 +897,7 @@ int main(int argc, char** argv) {
         }
         if (ppu_write_log != nullptr) {
             auto* ppu_regbus = dut->rootp->__PVT__tarunes_top__DOT__cpu_ppubus;
+            auto* cpubus = dut->rootp->__PVT__tarunes_top__DOT__cpubus;
             if (ppu_regbus->wen && (ppu_regbus->addr == 6 || ppu_regbus->addr == 7)) {
                 std::fprintf(
                     ppu_write_log,
@@ -871,7 +907,7 @@ int main(int argc, char** argv) {
                     static_cast<int>(dut->cycle),
                     dut->rootp->tarunes_top__DOT__cpu_inst__DOT__reg_pc,
                     static_cast<unsigned>(ppu_regbus->addr),
-                    static_cast<unsigned>(ppu_regbus->wdata),
+                    static_cast<unsigned>(cpubus->wdata),
                     dut->rootp->tarunes_top__DOT__ppu_inst__DOT__reg_v,
                     dut->rootp->tarunes_top__DOT__ppu_inst__DOT__ppu_addr_cpu);
             }
@@ -882,6 +918,23 @@ int main(int argc, char** argv) {
             if (!audio_dump.writeSample(sample)) {
                 std::fprintf(stderr, "Failed to write WAV sample to %s\n", audio_dump_path);
                 running = false;
+            }
+            if (audio_device != 0) {
+                live_audio_buffer.push_back(sample);
+                if (live_audio_buffer.size() == 512) {
+                    if (SDL_QueueAudio(audio_device,
+                                       live_audio_buffer.data(),
+                                       live_audio_buffer.size() * sizeof(int16_t)) != 0) {
+                        std::fprintf(stderr, "SDL_QueueAudio Error: %s\n", SDL_GetError());
+                        running = false;
+                    }
+                    live_audio_buffer.clear();
+                    if (!audio_started &&
+                        SDL_GetQueuedAudioSize(audio_device) >= 2048 * sizeof(int16_t)) {
+                        SDL_PauseAudioDevice(audio_device, 0);
+                        audio_started = true;
+                    }
+                }
             }
         }
 
@@ -987,12 +1040,18 @@ int main(int argc, char** argv) {
     SDL_DestroyTexture(texture);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
+    if (audio_device != 0) {
+        SDL_ClearQueuedAudio(audio_device);
+        SDL_CloseAudioDevice(audio_device);
+    }
     SDL_Quit();
 
+    #if VM_TRACE
     if (tfp != nullptr) {
         tfp->close();
         delete tfp;
     }
+    #endif
     if (ppu_write_log != nullptr) {
         std::fclose(ppu_write_log);
     }
