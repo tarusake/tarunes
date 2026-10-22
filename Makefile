@@ -43,6 +43,9 @@ test-bus-ppu:
 test-memory:
 	veryl test --test test_memory_read_write --no-capture
 
+test-i2s:
+	veryl test --test test_i2s_frame --no-capture
+
 rom: $(PRG_HEX) $(CHR_HEX)
 
 $(PRG_HEX) $(CHR_HEX): $(NES_ROM) nes2hex.py
@@ -66,4 +69,4 @@ run: build
 clean:
 	rm -rf obj_dir target *.vcd *.fst *.fst.hier
 
-.PHONY: all build run clean veryl-fmt veryl-build test test-controller test-oam-dma test-bus-cpu test-bus-ppu test-memory rom
+.PHONY: all build run clean veryl-fmt veryl-build test test-controller test-oam-dma test-bus-cpu test-bus-ppu test-memory test-i2s rom
