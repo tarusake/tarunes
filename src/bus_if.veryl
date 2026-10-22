@@ -1,4 +1,6 @@
-interface bus_if::<DATA_WIDTH: u32, ADDR_WIDTH: u32> {
+/// CPU・PPUと周辺回路で共有するアドレス／データバス。
+/// `master`がアドレス、書き込み許可、書き込みデータを出力し、`slave`が読み出しデータを返す。
+pub interface bus_if::<DATA_WIDTH: u32, ADDR_WIDTH: u32> {
     var addr : logic<ADDR_WIDTH>;
     var wen  : logic            ;
     var wdata: logic<DATA_WIDTH>;

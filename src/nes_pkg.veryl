@@ -1,4 +1,4 @@
-/// NES-wide CPU address map and timing constants.
+/// NES全体で使うCPUアドレスマップと映像・音声タイミング定数。
 package nes_pkg {
     const CPU_RAM_END     : logic<16> = 16'h1FFF;
     const PPU_REG_BASE    : logic<16> = 16'h2000;

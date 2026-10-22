@@ -1,4 +1,4 @@
-/// Shared PPU register, OAM, address, and scrolling definitions.
+/// PPUレジスタ、OAM、VRAMアドレス、スクロール処理の定義を共有するパッケージ。
 package ppu_pkg {
     struct ppu_ctrl_t {
         nmi_enable              : logic   ,

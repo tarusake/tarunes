@@ -1,4 +1,21 @@
-module bus_ppu (
+/// パターンテーブルとネームテーブルを接続するPPUメモリデコーダ。
+///
+/// `$0000-$1FFF`でCHR ROM、`$2000-$3EFF`でネーム／属性メモリを選択する。
+/// CPUインターコネクトと同様、読み出し先をレジスタに保存するため、
+/// アドレスをサンプリングした次のサイクルに読み出しデータを返す。
+/// パレットRAM（`$3F00-$3FFF`）は`ppu`内部にあり、このバスを経由しない。
+///
+/// ```wavedrom
+/// {signal: [
+///   {name: 'clk',          wave: 'p....'},
+///   {name: 'ppubus.addr',  wave: 'x=..x', data: ['$23C0']},
+///   {name: 'ppubus.wen',   wave: '0....'},
+///   {name: 'sel_vram',     wave: '01.0.'},
+///   {name: 'sel_vram_d',   wave: '0.1.0'},
+///   {name: 'ppubus.rdata', wave: 'x.=.x', data: ['属性バイト']}
+/// ], head: {text: 'PPU読出：アドレスフェーズと応答フェーズ'}}
+/// ```
+pub module bus_ppu (
     clk    : input   clock                  ,
     rst    : input   reset                  ,
     stall  : input   logic                  ,

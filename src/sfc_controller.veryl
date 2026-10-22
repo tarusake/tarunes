@@ -1,4 +1,6 @@
-module sfc_controller #(
+/// SFCコントローラの外部シリアル信号をポーリングし、NES用8ボタン状態を出力する。
+/// ラッチ、クロック、データの信号を扱い、入力データを同期してから公開する。
+pub module sfc_controller #(
     param HALF_PERIOD_CYCLES: logic<16> = 16'd162  ,
     param LATCH_CYCLES      : logic<16> = 16'd324  ,
     param POLL_GAP_CYCLES   : logic<20> = 20'd27000,
