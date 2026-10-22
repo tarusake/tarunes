@@ -37,6 +37,9 @@ test-oam-dma:
 test-bus-cpu:
 	veryl test --test test_bus_cpu_decode --no-capture
 
+test-cpu:
+	veryl test --test test_cpu_program_execution --no-capture
+
 test-bus-ppu:
 	veryl test --test test_bus_ppu_decode --no-capture
 
@@ -81,4 +84,4 @@ run: build
 clean:
 	rm -rf obj_dir target *.vcd *.fst *.fst.hier
 
-.PHONY: all build run clean veryl-fmt veryl-build test test-controller test-oam-dma test-bus-cpu test-bus-ppu test-memory test-i2s test-sfc-controller test-hdmi-scaler test-apu test-apu-pulse rom
+.PHONY: all build run clean veryl-fmt veryl-build test test-controller test-oam-dma test-bus-cpu test-cpu test-bus-ppu test-memory test-i2s test-sfc-controller test-hdmi-scaler test-apu test-apu-pulse rom
