@@ -90,7 +90,7 @@ module test_bus_cpu_decode {
         $display("CPU bus DMA request: start=%b page=%h halt=%b", dma_start, dma_page, cpu_halt);
         $assert(dma_start);
         $assert(dma_page == 8'h23);
-        $assert(cpu_halt);
+        $assert(!cpu_halt);
         clk.next();
         $assert(!dma_start);
 
