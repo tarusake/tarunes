@@ -1,0 +1,62 @@
+#[test(test_cpu_register_transfer_increment)]
+module test_cpu_register_transfer_increment {
+    inst clk: $tb::clock_gen; inst rst: $tb::reset_gen (clk);
+    var stall: logic; var nmi: logic; var halt: logic;
+    var debug_pc: logic<16>; var logic_analizer: logic<16>;
+    var stack_7f: logic<8>; var results: logic<4>; var flags: logic<3>;
+    inst cpubus: bus_if::<8, 16>;
+    inst dut: cpu (clk: clk, rst: rst, stall: stall, nmi: nmi, halt: halt,
+        debug_pc: debug_pc, logic_analizer: logic_analizer, cpubus: cpubus,);
+    function rom (addr: input logic<16>) -> logic<8> {
+        case (addr) {
+            16'hFFFC: return 8'h00; 16'hFFFD: return 8'h80;
+            16'h8000: return 8'hA9; 16'h8001: return 8'h80; 16'h8002: return 8'hAA; // TAX
+            16'h8003: return 8'h86; 16'h8004: return 8'h10; 16'h8005: return 8'h8A; // TXA
+            16'h8006: return 8'h85; 16'h8007: return 8'h11;
+            16'h8008: return 8'hA9; 16'h8009: return 8'h00; 16'h800A: return 8'hA8; // TAY
+            16'h800B: return 8'h84; 16'h800C: return 8'h12; 16'h800D: return 8'h98; // TYA
+            16'h800E: return 8'h85; 16'h800F: return 8'h13;
+            16'h8010: return 8'hA9; 16'h8011: return 8'h7F; 16'h8012: return 8'hAA;
+            16'h8013: return 8'hA9; 16'h8014: return 8'h00; 16'h8015: return 8'h9A; // TXS preserves Z
+            16'h8016: return 8'h08; 16'h8017: return 8'h28; 16'h8018: return 8'hBA; // PHP PLP TSX
+            16'h8019: return 8'h86; 16'h801A: return 8'h14;
+            16'h801B: return 8'hA2; 16'h801C: return 8'hFD; 16'h801D: return 8'h9A;
+            16'h801E: return 8'hA2; 16'h801F: return 8'hFF; 16'h8020: return 8'hE8; // INX -> 00
+            16'h8021: return 8'h86; 16'h8022: return 8'h15; 16'h8023: return 8'h08;
+            16'h8024: return 8'hA0; 16'h8025: return 8'h7F; 16'h8026: return 8'hC8; // INY -> 80
+            16'h8027: return 8'h84; 16'h8028: return 8'h16; 16'h8029: return 8'h08;
+            16'h802A: return 8'hA2; 16'h802B: return 8'h00; 16'h802C: return 8'hCA; // DEX -> FF
+            16'h802D: return 8'h86; 16'h802E: return 8'h17; 16'h802F: return 8'h08;
+            16'h8030: return 8'hA0; 16'h8031: return 8'h01; 16'h8032: return 8'h88; // DEY -> 00
+            16'h8033: return 8'h84; 16'h8034: return 8'h18; 16'h8035: return 8'h08;
+            16'h8036: return 8'h4C; 16'h8037: return 8'h36; 16'h8038: return 8'h80;
+            default: return 0;
+        }
+    }
+    always_ff (clk, rst) {
+        if_reset { cpubus.rdata = 0; stack_7f = 0; results = 0; flags = 0; }
+        else {
+            if (cpubus.addr == 16'h017F) { cpubus.rdata = stack_7f; } else { cpubus.rdata = rom(cpubus.addr); }
+            if (cpubus.wen) {
+                case (cpubus.addr) {
+                    16'h0010, 16'h0011: { $assert(cpubus.wdata == 8'h80); results = results + 1; }
+                    16'h0012, 16'h0013, 16'h0015, 16'h0018: { $assert(cpubus.wdata == 0); results = results + 1; }
+                    16'h0014: { $assert(cpubus.wdata == 8'h7F); results = results + 1; }
+                    16'h0016: { $assert(cpubus.wdata == 8'h80); results = results + 1; }
+                    16'h0017: { $assert(cpubus.wdata == 8'hFF); results = results + 1; }
+                    16'h017F: { stack_7f = cpubus.wdata; $assert(cpubus.wdata == 8'h36); flags = flags + 1; }
+                    16'h01FD, 16'h01FA: { $assert(cpubus.wdata == 8'h36); flags = flags + 1; }
+                    16'h01FC, 16'h01FB: { $assert(cpubus.wdata == 8'hB4); flags = flags + 1; }
+                    default: {}
+                }
+                $display("Register test write: addr=%h data=%h", cpubus.addr, cpubus.wdata);
+            }
+        }
+    }
+    initial {
+        stall = 0; nmi = 0; halt = 0; rst.assert(); clk.next(220);
+        $display("Register summary: pc=%h results=%d flags=%d sp=%h", debug_pc, results, flags, dut.reg_sp);
+        $assert(results == 9); $assert(flags == 5); $assert(dut.reg_sp == 8'hF9);
+        $assert(debug_pc == 16'h8036); $finish();
+    }
+}
