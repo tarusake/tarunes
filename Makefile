@@ -52,10 +52,6 @@ test-sfc-controller:
 test-hdmi-scaler:
 	veryl test --test test_hdmi_480p_timing_and_scaling --no-capture
 
-# Disabled until Veryl native simulation supports runtime-indexed unpacked arrays.
-# test-ppu-registers:
-# 	veryl test --test test_ppu_registers_and_vram_access --no-capture
-
 test-apu:
 	veryl test --test test_apu_registers_and_status --no-capture
 
