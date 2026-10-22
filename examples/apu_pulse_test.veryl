@@ -1,0 +1,118 @@
+#[test(test_apu_pulse_timing_and_duty)]
+module test_apu_pulse_timing_and_duty {
+    inst clk: $tb::clock_gen;
+    inst rst: $tb::reset_gen ( clk );
+
+    var stall       : logic   ;
+    var bus_stall   : logic   ;
+    var audio_sample: logic<8>;
+
+    inst cpubus: bus_if::<8, 5>;
+
+    inst dut: apu (
+        clk         : clk         ,
+        rst         : rst         ,
+        stall       : stall       ,
+        bus_stall   : bus_stall   ,
+        cpubus      : cpubus      ,
+        audio_sample: audio_sample,
+    );
+
+    function write_register (
+        addr: input logic<5>,
+        data: input logic<8>,
+    ) {
+        cpubus.addr  = addr;
+        cpubus.wdata = data;
+        cpubus.wen   = 1;
+        clk.next();
+        cpubus.wen = 0;
+        clk.next();
+    }
+
+    // The APU advances a pulse timer every six input clocks. With period 8,
+    // nine timer clocks must elapse before the sequencer advances one step.
+    function advance_pulse_step () {
+        clk.next(54);
+    }
+
+    function check_sample (
+        expected_seq : input logic<3>,
+        expected_high: input logic   ,
+        actual_seq   : input logic<3>,
+        actual_high  : input logic   ,
+    ) {
+        $display("APU pulse: seq=%d high=%b sample=%h", actual_seq, actual_high, audio_sample);
+        $assert(actual_seq == expected_seq);
+        $assert(actual_high == expected_high);
+        if (expected_high) {
+            $assert(audio_sample == 8'h9E);
+        } else {
+            $assert(audio_sample == 8'h80);
+        }
+        advance_pulse_step();
+    }
+
+    function restart_pulse (
+        duty: input logic<2>,
+    ) {
+        write_register(5'h00, {duty, 6'b111111});
+        write_register(5'h02, 8'h08);
+        write_register(5'h03, 8'h08);
+    }
+
+    initial {
+        stall        = 0;
+        bus_stall    = 0;
+        cpubus.addr  = 0;
+        cpubus.wen   = 0;
+        cpubus.wdata = 0;
+
+        rst.assert();
+        write_register(5'h15, 8'h01);
+
+        restart_pulse(0);
+        $assert(dut.pulse1_timer_period == 11'd8);
+        $assert(dut.pulse1_timer_counter == 11'd8);
+        check_sample(0, 0, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+        check_sample(1, 0, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+        check_sample(2, 0, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+        check_sample(3, 0, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+        check_sample(4, 0, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+        check_sample(5, 0, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+        check_sample(6, 1, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+        check_sample(7, 0, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+
+        restart_pulse(1);
+        check_sample(0, 0, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+        check_sample(1, 0, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+        check_sample(2, 0, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+        check_sample(3, 0, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+        check_sample(4, 0, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+        check_sample(5, 1, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+        check_sample(6, 1, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+        check_sample(7, 0, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+
+        restart_pulse(2);
+        check_sample(0, 0, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+        check_sample(1, 0, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+        check_sample(2, 0, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+        check_sample(3, 1, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+        check_sample(4, 1, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+        check_sample(5, 1, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+        check_sample(6, 1, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+        check_sample(7, 0, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+
+        restart_pulse(3);
+        check_sample(0, 1, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+        check_sample(1, 1, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+        check_sample(2, 1, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+        check_sample(3, 1, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+        check_sample(4, 1, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+        check_sample(5, 0, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+        check_sample(6, 0, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+        check_sample(7, 1, dut.pulse1_sequencer, dut.pulse1_duty_bit);
+
+        $finish();
+    }
+}
