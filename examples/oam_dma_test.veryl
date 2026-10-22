@@ -1,0 +1,75 @@
+#[test(test_oam_dma_transfer)]
+module test_oam_dma_transfer {
+    inst clk: $tb::clock_gen;
+    inst rst: $tb::reset_gen (clk);
+
+    var stall: logic   ;
+    var start: logic   ;
+    var page : logic<8>;
+    var busy : logic   ;
+
+    inst wrambus   : bus_if::<8, 11>;
+    inst ppu_regbus: bus_if::<8, 3>;
+
+    inst dut: oam_dma (
+        clk       : clk       ,
+        rst       : rst       ,
+        stall     : stall     ,
+        start     : start     ,
+        page      : page      ,
+        busy      : busy      ,
+        wrambus   : wrambus   ,
+        ppu_regbus: ppu_regbus,
+    );
+
+    initial {
+        stall            = 0;
+        start            = 0;
+        page             = 8'h12;
+        wrambus.rdata    = 8'hA5;
+        ppu_regbus.rdata = 0;
+
+        rst.assert();
+        $assert(!busy);
+
+        start = 1;
+        clk.next();
+        start = 0;
+        $display("DMA start: page=%h wram_addr=%h", page, wrambus.addr);
+        $assert(busy);
+        $assert(wrambus.addr == 11'h200);
+        $assert(!ppu_regbus.wen);
+
+        // A stalled READ cycle must not advance to WRITE.
+        stall = 1;
+        clk.next();
+        $display("DMA stalled: wram_addr=%h ppu_wen=%b", wrambus.addr, ppu_regbus.wen);
+        $assert(busy);
+        $assert(wrambus.addr == 11'h200);
+        $assert(!ppu_regbus.wen);
+        stall = 0;
+
+        clk.next();
+        $display("DMA first write: wram_addr=%h ppu_addr=%h data=%h", wrambus.addr, ppu_regbus.addr, ppu_regbus.wdata);
+        $assert(ppu_regbus.wen);
+        $assert(ppu_regbus.addr == 3'd4);
+        $assert(ppu_regbus.wdata == 8'hA5);
+
+        clk.next();
+        $assert(wrambus.addr == 11'h201);
+        $assert(!ppu_regbus.wen);
+
+        // Advance from READ index 1 to WRITE index 255.
+        clk.next(509);
+        $display("DMA final write: wram_addr=%h ppu_addr=%h", wrambus.addr, ppu_regbus.addr);
+        $assert(busy);
+        $assert(wrambus.addr == 11'h2FF);
+        $assert(ppu_regbus.wen);
+
+        clk.next();
+        $display("DMA complete: busy=%b", busy);
+        $assert(!busy);
+        $assert(!ppu_regbus.wen);
+        $finish();
+    }
+}

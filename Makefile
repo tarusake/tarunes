@@ -31,6 +31,9 @@ test:
 test-controller:
 	veryl test --test test_controller_serial_read --no-capture
 
+test-oam-dma:
+	veryl test --test test_oam_dma_transfer --no-capture
+
 rom: $(PRG_HEX) $(CHR_HEX)
 
 $(PRG_HEX) $(CHR_HEX): $(NES_ROM) nes2hex.py
@@ -54,4 +57,4 @@ run: build
 clean:
 	rm -rf obj_dir target *.vcd *.fst *.fst.hier
 
-.PHONY: all build run clean veryl-fmt veryl-build test test-controller rom
+.PHONY: all build run clean veryl-fmt veryl-build test test-controller test-oam-dma rom
