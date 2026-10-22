@@ -44,7 +44,7 @@ tarunes/
 Ubuntu 24.04 LTS or later is recommended for the simulation environment.
 
 - [Verilator](https://www.veripool.org/verilator/) 5.0 or later
-- [Veryl](https://github.com/veryl-lang/veryl) 0.20.1
+- [Veryl](https://github.com/veryl-lang/veryl) 0.22.0
 - SDL2 development package (`sdl2-config`)
 - SDL2_image development package (`SDL2_image.pc` visible to `pkg-config`)
 - GNU Make
@@ -58,19 +58,19 @@ sudo apt install verilator libsdl2-dev libsdl2-image-dev make g++
 
 ### Installing Veryl
 
-Veryl can be installed with `verylup`, the official Veryl toolchain installer. This project currently uses Veryl `0.20.1`.
+Veryl can be installed with `verylup`, the official Veryl toolchain installer. This project currently uses Veryl `0.22.0`.
 
 Using Cargo:
 
 ```bash
 cargo install verylup
 verylup setup
-verylup install 0.20.1
-verylup default 0.20.1
+verylup install 0.22.0
+verylup default 0.22.0
 veryl --version
 ```
 
-`verylup setup` is only needed for the first installation. If `veryl --version` reports `veryl 0.20.1`, the toolchain is ready.
+`verylup setup` is only needed for the first installation. If `veryl --version` reports `veryl 0.22.0`, the toolchain is ready.
 
 To update the installed toolchain:
 
