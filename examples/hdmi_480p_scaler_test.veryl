@@ -1,0 +1,93 @@
+#[test(test_hdmi_480p_timing_and_scaling)]
+module test_hdmi_480p_timing_and_scaling {
+    inst clk: $tb::clock_gen;
+    inst rst: $tb::reset_gen (clk);
+
+    var core_cycle      : logic<9> ;
+    var core_scanline   : logic<9> ;
+    var core_pixel_index: logic<6> ;
+    var hdmi_r          : logic<8> ;
+    var hdmi_g          : logic<8> ;
+    var hdmi_b          : logic<8> ;
+    var hdmi_hsync      : logic    ;
+    var hdmi_vsync      : logic    ;
+    var hdmi_de         : logic    ;
+    var video_x         : logic<10>;
+    var video_y         : logic<10>;
+
+    inst dut: hdmi_480p_scaler (
+        clk             : clk             ,
+        rst             : rst             ,
+        core_cycle      : core_cycle      ,
+        core_scanline   : core_scanline   ,
+        core_pixel_index: core_pixel_index,
+        hdmi_r          : hdmi_r          ,
+        hdmi_g          : hdmi_g          ,
+        hdmi_b          : hdmi_b          ,
+        hdmi_hsync      : hdmi_hsync      ,
+        hdmi_vsync      : hdmi_vsync      ,
+        hdmi_de         : hdmi_de         ,
+        video_x         : video_x         ,
+        video_y         : video_y         ,
+    );
+
+    initial {
+        core_cycle       = 0;
+        core_scanline    = 0;
+        core_pixel_index = 6'd32;
+
+        rst.assert();
+        $assert(dut.framebuffer[0] == 6'd32);
+        core_cycle = 9'd256;
+
+        // The two-stage output pipeline presents active pixel (0, 0).
+        clk.next(2);
+        $display("HDMI active border: x=%d y=%d de=%b rgb=%h%h%h", video_x, video_y, hdmi_de, hdmi_r, hdmi_g, hdmi_b);
+        $assert(video_x == 0);
+        $assert(video_y == 0);
+        $assert(hdmi_de);
+        $assert({hdmi_r, hdmi_g, hdmi_b} == 24'h003DA6);
+
+        // The 512-pixel NES image begins at x=104 and doubles each source pixel.
+        clk.next(102);
+        $display("HDMI scale start: h=%d src_x=%d src_y=%d", dut.h_count, dut.src_x, dut.src_y);
+        $assert(dut.h_count == 10'd104);
+        $assert(dut.scaled_area);
+        $assert(dut.src_x == 0);
+        $assert(dut.src_y == 0);
+        clk.next();
+        $assert(dut.src_x == 0);
+        clk.next();
+        $assert(dut.src_x == 1);
+
+        // Active video ends at x=719; output is blank from x=720.
+        clk.next(614);
+        $assert(dut.h_count == 10'd720);
+        $assert(!dut.active_area);
+        clk.next(2);
+        $display("HDMI blanking: x=%d de=%b rgb=%h%h%h", video_x, hdmi_de, hdmi_r, hdmi_g, hdmi_b);
+        $assert(video_x == 10'd720);
+        $assert(!hdmi_de);
+        $assert({hdmi_r, hdmi_g, hdmi_b} == 0);
+
+        // Horizontal sync is low for counters 736 through 797.
+        clk.next(14);
+        $assert(dut.h_count == 10'd736);
+        clk.next();
+        $display("HDMI hsync assert: h=%d hsync=%b", dut.h_count, hdmi_hsync);
+        $assert(!hdmi_hsync);
+        clk.next(62);
+        $display("HDMI hsync release: h=%d hsync=%b", dut.h_count, hdmi_hsync);
+        $assert(hdmi_hsync);
+
+        // 858 clocks complete one line; y=1 still maps to NES source row 0.
+        clk.next(59);
+        $display("HDMI next line: h=%d v=%d src_y=%d", dut.h_count, dut.v_count, dut.src_y);
+        $assert(dut.h_count == 0);
+        $assert(dut.v_count == 1);
+        $assert(dut.src_y == 0);
+        $assert(hdmi_vsync);
+
+        $finish();
+    }
+}

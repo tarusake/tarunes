@@ -49,6 +49,9 @@ test-i2s:
 test-sfc-controller:
 	veryl test --test test_sfc_controller_poll --no-capture
 
+test-hdmi-scaler:
+	veryl test --test test_hdmi_480p_timing_and_scaling --no-capture
+
 rom: $(PRG_HEX) $(CHR_HEX)
 
 $(PRG_HEX) $(CHR_HEX): $(NES_ROM) nes2hex.py
@@ -72,4 +75,4 @@ run: build
 clean:
 	rm -rf obj_dir target *.vcd *.fst *.fst.hier
 
-.PHONY: all build run clean veryl-fmt veryl-build test test-controller test-oam-dma test-bus-cpu test-bus-ppu test-memory test-i2s test-sfc-controller rom
+.PHONY: all build run clean veryl-fmt veryl-build test test-controller test-oam-dma test-bus-cpu test-bus-ppu test-memory test-i2s test-sfc-controller test-hdmi-scaler rom
