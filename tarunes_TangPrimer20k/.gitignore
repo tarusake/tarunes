@@ -1,0 +1,8 @@
+/impl/
+/rom_prg.hex
+/rom_chr.hex
+/*.gprj
+/*.gprj.user
+/src/dvi_tx/
+/src/gowin_rpll/*.mod
+/src/gowin_rpll/*_tmp.v

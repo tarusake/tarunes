@@ -165,7 +165,11 @@ run-fast: fast-build
 tangnano20k: veryl-build rom
 	ROM=$(ROM) $(GOWIN_SH) tarunes_TangNano20k/gowin_build.tcl
 
+# Veryl生成、ROM変換、Gowin合成・配置配線をまとめて実行する。
+tangprimer20k: veryl-build rom
+	ROM=$(ROM) $(GOWIN_SH) tarunes_TangPrimer20k/gowin_build.tcl
+
 clean:
 	rm -rf obj_dir obj_dir_fast target *.vcd *.fst *.fst.hier
 
-.PHONY: all build run fast-build run-fast tangnano20k clean veryl-fmt veryl-build test test-controller test-oam-dma test-bus-cpu test-cpu test-cpu-hex test-cpu-alu test-cpu-addressing test-cpu-branch test-cpu-stack test-cpu-interrupt test-cpu-rmw test-cpu-jmp-indirect test-cpu-pause test-cpu-acc-shift test-cpu-register test-cpu-bit test-cpu-store test-cpu-zp-wrap test-cpu-page-cross test-cpu-interrupt-detail test-cpu-write-pause test-bus-ppu test-cartridge-bus test-memory test-i2s test-sfc-controller test-hdmi-scaler test-apu test-apu-pulse rom
+.PHONY: all build run fast-build run-fast tangnano20k tangprimer20k clean veryl-fmt veryl-build test test-controller test-oam-dma test-bus-cpu test-cpu test-cpu-hex test-cpu-alu test-cpu-addressing test-cpu-branch test-cpu-stack test-cpu-interrupt test-cpu-rmw test-cpu-jmp-indirect test-cpu-pause test-cpu-acc-shift test-cpu-register test-cpu-bit test-cpu-store test-cpu-zp-wrap test-cpu-page-cross test-cpu-interrupt-detail test-cpu-write-pause test-bus-ppu test-cartridge-bus test-memory test-i2s test-sfc-controller test-hdmi-scaler test-apu test-apu-pulse rom
