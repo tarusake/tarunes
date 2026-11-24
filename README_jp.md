@@ -3,7 +3,7 @@
 Veryl で記述された NES 互換の CPU / PPU / バス / メモリを含むハードウェア設計プロジェクトです。
 6502 系 CPU、NES 風の PPU / APU、HDMI 480p スケーラ、I2S 音声出力、SFC コントローラ入力を含みます。
 
-現在の公開版は Verilator + SDL2 によるシミュレーションを主対象にしています。iNES ROM を PRG / CHR HEX に変換して読み込み、SDL2 ウィンドウに 256x240 の内部映像または 720x480 の HDMI 出力を表示できます。
+Verilator + SDL2 によるシミュレーションと Tang Nano 20K での実機動作に対応しています。iNES ROM を PRG / CHR HEX に変換して読み込み、256x240 の内部映像または 720x480 の HDMI 出力を表示できます。
 
 商用 ROM ファイルはこのリポジトリに含めていません。
 
@@ -40,6 +40,8 @@ tarunes/
 │   ├── tb_top.sv       # SystemVerilog テストベンチ
 │   └── tb_top.cpp      # C++ テストベンチドライバ
 ├── target/             # Veryl が生成する RTL (SystemVerilog)
+├── tarunes_TangNano20k/
+│                       # Tang Nano 20K用ラッパー、制約、Tclビルド
 └── obj_dir/            # Verilator が生成するオブジェクトディレクトリ
 ```
 
@@ -48,7 +50,7 @@ tarunes/
 シミュレーション環境は Ubuntu 24.04 LTS 以上を推奨します。
 
 - [Verilator](https://www.veripool.org/verilator/) (5.0 以上)
-- [Veryl](https://github.com/veryl-lang/veryl) (0.22.0)
+- [Veryl](https://github.com/veryl-lang/veryl) (0.22.1)
 - SDL2 開発パッケージ (`sdl2-config` が使えること)
 - SDL2_image 開発パッケージ (`SDL2_image.pc` が `pkg-config` で見えること)
 - GNU Make
@@ -63,20 +65,20 @@ sudo apt install verilator libsdl2-dev libsdl2-image-dev make g++
 ### Veryl のインストール
 
 Veryl は公式の toolchain installer である `verylup` でインストールできます。
-このプロジェクトでは Veryl `0.22.0` を使用しています。
+このプロジェクトでは Veryl `0.22.1` を使用しています。
 
 Cargo を使う場合:
 
 ```bash
 cargo install verylup
 verylup setup
-verylup install 0.22.0
-verylup default 0.22.0
+verylup install 0.22.1
+verylup default 0.22.1
 veryl --version
 ```
 
 `verylup setup` は初回のみ必要です。
-`veryl --version` で `veryl 0.22.0` と表示されれば準備完了です。
+`veryl --version` で `veryl 0.22.1` と表示されれば準備完了です。
 
 最新の toolchain に更新する場合:
 
@@ -109,6 +111,23 @@ APU を無効化してビルドする場合:
 ```bash
 make ENABLE_APU=0
 ```
+
+### Tang Nano 20K
+
+Gowin EDAをインストールし、`gw_sh` にPATHが通った状態で次を実行します。
+
+```bash
+make tangnano20k ROM=sample
+```
+
+bitstreamは
+`tarunes_TangNano20k/impl/pnr/tarunes_tangnano20k.fs` に生成されます。
+Veryl製TMDSエンコーダーとGowinの `CLKDIV`、`OSER10`、`TLVDS_OBUF` を
+使用するため、暗号化されたGowin DVI TX IPは不要です。
+
+Tang Nano 20K版の音声は、APU音声バッファの合成中にGowin EDAのRAM推論処理が
+クラッシュするため、現在は無効です。ピン、クロック、その他の詳細は
+[`tarunes_TangNano20k/README.md`](tarunes_TangNano20k/README.md) を参照してください。
 
 ## シミュレーション実行
 

@@ -1,0 +1,87 @@
+// HDMI/TMDS 出力は P/N を別ポートとして個別制約せず、
+// P 側ポートに P,N の物理ピンをペアで指定する。
+// IO_TYPE=LVDS25 により Gowin の差動出力として扱わせる。
+IO_LOC "O_tmds_clk_p" 33,34;
+IO_PORT "O_tmds_clk_p" IO_TYPE=LVDS25 PULL_MODE=NONE DRIVE=3.5 BANK_VCCIO=3.3;
+IO_LOC "O_tmds_data_p[0]" 35,36;
+IO_PORT "O_tmds_data_p[0]" IO_TYPE=LVDS25 PULL_MODE=NONE DRIVE=3.5 BANK_VCCIO=3.3;
+IO_LOC "O_tmds_data_p[1]" 37,38;
+IO_PORT "O_tmds_data_p[1]" IO_TYPE=LVDS25 PULL_MODE=NONE DRIVE=3.5 BANK_VCCIO=3.3;
+IO_LOC "O_tmds_data_p[2]" 39,40;
+IO_PORT "O_tmds_data_p[2]" IO_TYPE=LVDS25 PULL_MODE=NONE DRIVE=3.5 BANK_VCCIO=3.3;
+
+// LED0..LED5 は +3.3V 側に接続されているため active-low。
+// FPGA が 0 を出すと点灯、1 を出すと消灯する。
+// 出力なので内部プルは不要。基板の LED 番号と O_led のビット番号を合わせる。
+IO_LOC "O_led[0]" 15;
+IO_PORT "O_led[0]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "O_led[1]" 16;
+IO_PORT "O_led[1]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "O_led[2]" 17;
+IO_PORT "O_led[2]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "O_led[3]" 18;
+IO_PORT "O_led[3]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "O_led[4]" 19;
+IO_PORT "O_led[4]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "O_led[5]" 20;
+IO_PORT "O_led[5]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+
+// Logic analyzer output:
+// [15] valid, [14:8] PC low bits, [7:0] opcode.
+IO_LOC "logic_analizer[0]" 73;
+IO_PORT "logic_analizer[0]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "logic_analizer[1]" 74;
+IO_PORT "logic_analizer[1]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "logic_analizer[2]" 75;
+IO_PORT "logic_analizer[2]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "logic_analizer[3]" 85;
+IO_PORT "logic_analizer[3]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "logic_analizer[4]" 77;
+IO_PORT "logic_analizer[4]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "logic_analizer[5]" 27;
+IO_PORT "logic_analizer[5]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "logic_analizer[6]" 28;
+IO_PORT "logic_analizer[6]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "logic_analizer[7]" 25;
+IO_PORT "logic_analizer[7]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "logic_analizer[8]" 26;
+IO_PORT "logic_analizer[8]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "logic_analizer[9]" 29;
+IO_PORT "logic_analizer[9]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "logic_analizer[10]" 30;
+IO_PORT "logic_analizer[10]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "logic_analizer[11]" 31;
+IO_PORT "logic_analizer[11]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "logic_analizer[12]" 76;
+IO_PORT "logic_analizer[12]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "logic_analizer[13]" 80;
+IO_PORT "logic_analizer[13]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "logic_analizer[14]" 42;
+IO_PORT "logic_analizer[14]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "logic_analizer[15]" 41;
+IO_PORT "logic_analizer[15]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+
+// AUDIO: I2S DAC / amplifier header.
+IO_LOC "O_i2s_bclk" 56;
+IO_PORT "O_i2s_bclk" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "O_i2s_lrck" 55;
+IO_PORT "O_i2s_lrck" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "O_i2s_din" 54;
+IO_PORT "O_i2s_din" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "O_pa_sd_en" 51;
+IO_PORT "O_pa_sd_en" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+
+// S1/S2 は押すと +3.3V、離すと基板上の1kΩ抵抗でGNDへプルダウンされる。
+// pin88 が S1(reset)、pin87 が S2(key)。
+// 押下=1、非押下=0として扱う。内部プルダウンも補助として有効にする。
+// S1 reset: pin88
+IO_LOC "I_rst" 88;
+IO_PORT "I_rst" IO_TYPE=LVCMOS33 PULL_MODE=DOWN BANK_VCCIO=3.3;
+// S2 key: pin87
+IO_LOC "I_key" 87;
+IO_PORT "I_key" IO_TYPE=LVCMOS33 PULL_MODE=DOWN BANK_VCCIO=3.3;
+
+// 27MHz オシレータ出力が 22ohm 経由で入力されるクロック。
+// 能動的に駆動される信号なので内部プルは不要。
+IO_LOC "I_clk" 4;
+IO_PORT "I_clk" IO_TYPE=LVCMOS33 PULL_MODE=NONE BANK_VCCIO=3.3;

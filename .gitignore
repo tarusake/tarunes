@@ -4,12 +4,16 @@
 /dependencies
 /doc
 *.f
+**/impl/
 
 # Verilator
-obj_dir/
+/obj_dir*/
 *.vcd
 *.fst
 *.fst.hier
+
+# Gowin EDA
+*.gprj.user
 
 # nes
 *.nes
@@ -17,9 +21,14 @@ obj_dir/
 
 # Temporary files
 *.log
+*.log.tar.gz
 *.bmp
 *.png
 *.wav
+
+# KiCad generated reports and local settings
+*.rpt
+*.kicad_prl
 
 # Python
 __pycache__/
