@@ -136,6 +136,14 @@ Run another ROM:
 make run ROM=sample
 ```
 
+Generate a CPU execution trace for [Konata](https://github.com/shioyadan/Konata):
+
+```bash
+make run-fast ARGS="--konata tarunes.log --frames 1"
+```
+
+Open `tarunes.log` in Konata to inspect each instruction's internal CPU state transitions. The log also includes the PC, disassembly, instruction bytes, register values, frame number, and CPU cycle.
+
 Stop after a fixed number of frames:
 
 ```bash
@@ -157,6 +165,7 @@ Runtime options:
 - `--dump-audio PATH`: Set the WAV output path
 - `--dump-vram PATH`: Dump VRAM when the simulator exits
 - `--log-ppu-writes PATH`: Log `$2006` / `$2007` writes
+- `--konata PATH`: Write a Kanata v4 CPU execution trace
 - `--dump-state`: Print a small PPU / WRAM state dump on exit
 
 On exit, the simulator writes the last video frame to `last_frame.png` and audio to `apu.wav`.

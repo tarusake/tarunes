@@ -74,18 +74,26 @@ pub module cpu (
         INT_PUSH_LO,
         INT_PUSH_P,
         INT_VECTOR_LO,
-        INT_VECTOR_LO_WAIT,
         INT_VECTOR_HI,
         INT_VECTOR_HI_READ,
         JSR_PUSH_LO,
         RTI_PULL_P,
-        RTI_WAIT_LO,
-        RTI_PULL_HI,
-        RTS_PULL_LO,
-        RTS_WAIT_HI,
+        RETURN_PULL_LO,
+        RETURN_PULL_HI,
     }
+
+    /// ALUの演算結果と、演算によって更新されたステータスフラグをまとめて返す型。
+    struct alu_result_t {
+        value : logic<8>,
+        status: logic<8>,
+    }
+    /// 相対分岐の8ビットオフセットを符号付き値として解釈する型。
+    /// `signed logic<8>`へ直接キャストできないため、名前付きの型を経由する。
+    type signed_byte_t = signed logic<8>;
+
     var state: cpu_state_t;
 
+    /// CPUの内部状態を、波形デバッグで読みやすい文字列へデコードする。
     function debug_cpu_state_str (
         debug_state: input cpu_state_t,
     ) -> logic<64> {
@@ -105,16 +113,126 @@ pub module cpu (
             cpu_state_t::INT_PUSH_LO       : return "INT_LO";
             cpu_state_t::INT_PUSH_P        : return "INT_P";
             cpu_state_t::INT_VECTOR_LO     : return "INT_VL";
-            cpu_state_t::INT_VECTOR_LO_WAIT: return "INT_WL";
             cpu_state_t::INT_VECTOR_HI     : return "INT_VH";
             cpu_state_t::INT_VECTOR_HI_READ: return "INT_RH";
             cpu_state_t::JSR_PUSH_LO       : return "JSR_LO";
             cpu_state_t::RTI_PULL_P        : return "RTI_P";
-            cpu_state_t::RTI_WAIT_LO       : return "RTI_WAIT";
-            cpu_state_t::RTI_PULL_HI       : return "RTI_HI";
-            cpu_state_t::RTS_PULL_LO       : return "RTS_LO";
-            cpu_state_t::RTS_WAIT_HI       : return "RTS_WAIT";
+            cpu_state_t::RETURN_PULL_LO    : return "RET_LO";
+            cpu_state_t::RETURN_PULL_HI    : return "RET_HI";
             default                        : return "UNKNOWN";
+        }
+    }
+
+    /// 演算結果に合わせてZ（ゼロ）とN（負数）フラグを更新する。
+    function update_zn (
+        status: input logic<8>,
+        value : input logic<8>,
+    ) -> logic<8> {
+        var result               : logic<8>;
+        result                = status;
+        result[FLAG_ZERO]     = (value == 0);
+        result[FLAG_NEGATIVE] = value[7];
+        return result;
+    }
+
+    /// 算術・論理演算を実行し、結果値と更新後のフラグを返す。
+    function alu_execute (
+        instruction: input inst_t   ,
+        left       : input logic <8>,
+        right      : input logic <8>,
+        status     : input logic <8>,
+    ) -> alu_result_t {
+        var result       : alu_result_t   ;
+        var operand      : logic       <8>;
+        var sum          : logic       <9>;
+        result.value  = left;
+        result.status = status;
+        operand       = right;
+        sum           = 0;
+
+        case (instruction) {
+            inst_t::ORA                          : result.value = left | right;
+            inst_t::AND                          : result.value = left & right;
+            inst_t::EOR                          : result.value = left ^ right;
+            inst_t::INC, inst_t::INX, inst_t::INY: result.value = left + 1;
+            inst_t::DEC, inst_t::DEX, inst_t::DEY: result.value = left - 1;
+            inst_t::ASL                          : {
+                result.value              = left << 1;
+                result.status[FLAG_CARRY] = left[7];
+            }
+            inst_t::LSR: {
+                result.value              = left >> 1;
+                result.status[FLAG_CARRY] = left[0];
+            }
+            inst_t::ROL: {
+                result.value              = {left[6:0], status[FLAG_CARRY]};
+                result.status[FLAG_CARRY] = left[7];
+            }
+            inst_t::ROR: {
+                result.value              = {status[FLAG_CARRY], left[7:1]};
+                result.status[FLAG_CARRY] = left[0];
+            }
+            inst_t::ADC, inst_t::SBC: {
+                if (instruction == inst_t::SBC) {
+                    // 6502のSBCは、減算値を反転してキャリー付き加算として計算できる。
+                    operand = ~right;
+                }
+                sum                          = {1'b0, left} + {1'b0, operand} + {8'h00, status[FLAG_CARRY]};
+                result.value                 = sum[7:0];
+                result.status[FLAG_CARRY]    = sum[8];
+                result.status[FLAG_OVERFLOW] = ((left ^ result.value) & (operand ^ result.value) & 8'h80) != 0;
+            }
+            inst_t::CMP, inst_t::CPX, inst_t::CPY: {
+                result.value              = left - right;
+                result.status[FLAG_CARRY] = (left >= right);
+            }
+            inst_t::BIT: {
+                // BITはAND結果を保存せず、ZはAND結果、V/Nはメモリ値から更新する。
+                result.status[FLAG_ZERO]     = ((left & right) == 0);
+                result.status[FLAG_OVERFLOW] = right[6];
+                result.status[FLAG_NEGATIVE] = right[7];
+            }
+        }
+
+        case (instruction) {
+            inst_t::BIT: {}
+            default: {
+                result.status[FLAG_ZERO]     = (result.value == 0);
+                result.status[FLAG_NEGATIVE] = result.value[7];
+            }
+        }
+        return result;
+    }
+
+    /// アドレッシングモードに応じてX/Yインデックスを加える。
+    function indexed_addr (
+        mode: input addr_mode_t    ,
+        base: input logic      <16>,
+        x   : input logic      <8> ,
+        y   : input logic      <8> ,
+    ) -> logic<16> {
+        case (mode) {
+            addr_mode_t::ABSX                   : return base + x;
+            addr_mode_t::ABSY, addr_mode_t::INDY: return base + y;
+            default                             : return base;
+        }
+    }
+
+    /// 分岐命令が現在のフラグ条件を満たすか判定する。
+    function branch_taken (
+        instruction: input inst_t   ,
+        status     : input logic <8>,
+    ) -> logic {
+        case (instruction) {
+            inst_t::BCC: return !status[FLAG_CARRY];
+            inst_t::BCS: return status[FLAG_CARRY];
+            inst_t::BNE: return !status[FLAG_ZERO];
+            inst_t::BEQ: return status[FLAG_ZERO];
+            inst_t::BPL: return !status[FLAG_NEGATIVE];
+            inst_t::BMI: return status[FLAG_NEGATIVE];
+            inst_t::BVC: return !status[FLAG_OVERFLOW];
+            inst_t::BVS: return status[FLAG_OVERFLOW];
+            default    : return 0;
         }
     }
 
@@ -122,237 +240,233 @@ pub module cpu (
     assign debug_pc       = reg_pc;
     assign logic_analizer = {!stall && !halt && state == cpu_state_t::DECODE, reg_pc[6:0], cpubus.rdata,};
 
+    // 現在のステートとCPUレジスタから、外部バスへ出すren・アドレス・データ・書き込み信号を作る。
+    // バス信号までalways_ffで作ると、ステートが変わってからアドレスを出すまで1クロック遅れ、
+    // 読み出し結果を受け取るまでに余分なサイクルが増える。そのためバスへの読み書きは組み合わせ回路で
+    // すぐに出し、読み出した値の保存と次ステートへの遷移だけを後段のalways_ffで行う。
+    // 一方で組み合わせ経路は長くなるため、回路規模や接続先によっては最大動作周波数が下がる。
     always_comb {
+        // バスを使わないステートでは、既定値のまま読み書きを行わない。
         cpubus.addr  = 0;
+        cpubus.ren   = 0;
         cpubus.wen   = 0;
         cpubus.wdata = 0;
 
         case (state) {
+            // リセットベクタ下位のアドレス$FFFCを出力する。
             cpu_state_t::RESET0: {
                 cpubus.addr = RESET_VECTOR;
+                cpubus.ren  = 1;
             }
+            // リセットベクタ上位のアドレス$FFFDを出力する。
             cpu_state_t::RESET1: {
                 cpubus.addr = RESET_VECTOR + 1;
+                cpubus.ren  = 1;
             }
+            // 通常はPCを読み、NMI開始時は復帰PC上位をスタックへ書く。
             cpu_state_t::FETCH: {
                 cpubus.addr = reg_pc;
+                cpubus.ren  = 1;
                 if (nmi_pending) {
                     cpubus.addr  = {8'h01, reg_sp};
+                    cpubus.ren   = 0;
                     cpubus.wdata = reg_pc[15:8];
                     cpubus.wen   = 1'b1;
                 }
             }
+            // オペランド、または暗黙命令が使うスタックアドレスを出力する。
             cpu_state_t::DECODE: {
                 let decode_entry: decode_entry_t = decode_opcode(cpubus.rdata);
                 case (decode_entry.mode) {
+                    // オペランドを持たない命令。スタック命令だけはここで読み書き先を指定する。
                     addr_mode_t::IMPLIED: {
                         case (decode_entry.inst_kind) {
+                            // BRKは戻り先PCの上位から順にスタックへ積む。
                             inst_t::BRK: {
                                 let brk_return_addr: logic<16> = reg_pc + decode_entry.len;
                                 cpubus.addr     = {8'h01, reg_sp};
                                 cpubus.wdata    = brk_return_addr[15:8];
                                 cpubus.wen      = 1'b1;
                             }
+                            // プル命令はSPの次の位置にあるスタック値を読む。
                             inst_t::PLP, inst_t::PLA, inst_t::RTI, inst_t::RTS: {
                                 cpubus.addr = {8'h01, reg_sp + 8'd1};
+                                cpubus.ren  = 1;
                             }
-                            inst_t::PHA: {
-                                cpubus.addr  = {8'h01, reg_sp};
-                                cpubus.wdata = reg_a;
-                                cpubus.wen   = 1'b1;
-                            }
-                            inst_t::PHP: {
-                                cpubus.addr  = {8'h01, reg_sp};
-                                cpubus.wdata = reg_p | 8'h30;
+                            // プッシュ命令は現在のSP位置へAまたはPを書く。
+                            inst_t::PHA, inst_t::PHP: {
+                                cpubus.addr = {8'h01, reg_sp};
+                                // PHPでスタックへ積む値では、未使用bitとBフラグを1にする。
+                                cpubus.wdata = if decode_entry.inst_kind == inst_t::PHP ? reg_p | 8'h30 : reg_a;
                                 cpubus.wen   = 1'b1;
                             }
                         }
                     }
-                    addr_mode_t::IMM, addr_mode_t::ZP, addr_mode_t::ZPX, addr_mode_t::ZPY, addr_mode_t::INDX,
-                    addr_mode_t::INDY, addr_mode_t::REL, addr_mode_t::ABS, addr_mode_t::ABSX, addr_mode_t::ABSY,
-                    addr_mode_t::IND: {
+                    // オペランドを持つモードでは、命令直後の第1オペランドを読む。
+                    default: {
                         cpubus.addr = reg_pc + 1;
+                        cpubus.ren  = 1;
                     }
                 }
             }
+            // 第1オペランドを使い、データまたは次のアドレスを読む。
             cpu_state_t::OP1: {
                 case (addr_mode) {
+                    // ゼロページの加算は8ビットなので、$FFを越えると$00へ折り返す。
                     addr_mode_t::ZP: {
                         cpubus.addr = {8'h00, cpubus.rdata};
+                        cpubus.ren  = 1;
                     }
                     addr_mode_t::ZPX: {
                         cpubus.addr = {8'h00, cpubus.rdata + reg_x};
+                        cpubus.ren  = 1;
                     }
                     addr_mode_t::ZPY: {
                         cpubus.addr = {8'h00, cpubus.rdata + reg_y};
+                        cpubus.ren  = 1;
                     }
+                    // (ゼロページ,X): オペランドにXを加えた場所から、実効アドレスの下位を読む。
                     addr_mode_t::INDX: {
                         cpubus.addr = {8'h00, cpubus.rdata + reg_x};
+                        cpubus.ren  = 1;
                     }
+                    // (ゼロページ),Y: まずオペランドの場所からポインタ下位を読む。Yは完成後に加える。
                     addr_mode_t::INDY: {
                         cpubus.addr = {8'h00, cpubus.rdata};
+                        cpubus.ren  = 1;
                     }
+                    // 絶対アドレスと間接JMPは3バイト命令なので、PC+2からアドレス上位を読む。
                     addr_mode_t::ABS, addr_mode_t::ABSX, addr_mode_t::ABSY, addr_mode_t::IND: {
                         cpubus.addr = reg_pc + 2;
+                        cpubus.ren  = 1;
                     }
                 }
             }
+            // 絶対・間接アドレスの上位を使い、対象のデータを読む。
             cpu_state_t::OP2: {
                 case (addr_mode) {
-                    addr_mode_t::INDX: {
+                    // INDX/INDY: ゼロページポインタの次のバイトから実効アドレス上位を読む。
+                    // ptr_addrが$FFなら8ビット加算によって$00へ折り返す。
+                    addr_mode_t::INDX, addr_mode_t::INDY: {
                         cpubus.addr = {8'h00, ptr_addr + 8'd1};
+                        cpubus.ren  = 1;
                     }
-                    addr_mode_t::INDY: {
-                        cpubus.addr = {8'h00, ptr_addr + 8'd1};
-                    }
-                    addr_mode_t::ABS: {
-                        if (!is_store_inst(decoded_inst)) {
-                            cpubus.addr = {cpubus.rdata, op1};
+                    // ABS/ABSX/ABSY: rdataを上位、op1を下位として実効アドレスを作る。
+                    // ストア時はren=0にして、書き込み前の不要なI/O読み出しを防ぐ。
+                    addr_mode_t::ABS, addr_mode_t::ABSX, addr_mode_t::ABSY: {
+                        cpubus.addr = indexed_addr(addr_mode, {cpubus.rdata, op1}, reg_x, reg_y);
+                        case (decoded_inst) {
+                            // ストア命令は次のEXECで書くので、ここでは読まない。
+                            inst_t::STA, inst_t::STX, inst_t::STY: {
+                                cpubus.ren = 0;
+                            }
+                            default: {
+                                cpubus.ren = 1;
+                            }
                         }
                     }
-                    addr_mode_t::ABSX: {
-                        if (!is_store_inst(decoded_inst)) {
-                            cpubus.addr = {cpubus.rdata, op1} + reg_x;
-                        }
-                    }
-                    addr_mode_t::ABSY: {
-                        if (!is_store_inst(decoded_inst)) {
-                            cpubus.addr = {cpubus.rdata, op1} + reg_y;
-                        }
-                    }
+                    // JMP (addr): rdataとop1で作ったポインタから、飛び先PCの下位を読む。
                     addr_mode_t::IND: {
                         cpubus.addr = {cpubus.rdata, op1};
+                        cpubus.ren  = 1;
                     }
                 }
             }
+            // 間接アドレスを完成し、そのアドレスのデータを読む。
             cpu_state_t::OP3: {
                 case (addr_mode) {
+                    // INDXはXをポインタ位置へ加算済みなので、完成したポインタをそのまま使う。
                     addr_mode_t::INDX: {
-                        if (!is_store_inst(decoded_inst)) {
-                            cpubus.addr = {cpubus.rdata, op1};
-                        }
+                        cpubus.addr = {cpubus.rdata, op1};
                     }
+                    // INDYは完成したポインタへYを加えて実効アドレスを作る。
                     addr_mode_t::INDY: {
-                        if (!is_store_inst(decoded_inst)) {
-                            cpubus.addr = {cpubus.rdata, op1} + reg_y;
-                        }
+                        cpubus.addr = {cpubus.rdata, op1} + reg_y;
+                    }
+                }
+
+                // ストア命令は次のEXECで書くので、実効アドレスからは読まない。
+                case (decoded_inst) {
+                    inst_t::STA: {
+                        cpubus.ren = 0;
+                    }
+                    default: {
+                        cpubus.ren = 1;
                     }
                 }
             }
-            cpu_state_t::JMP_IND_LO: {
-                cpubus.addr = {return_addr[15:8], return_addr[7:0] + 8'd1};
-            }
+            // 書き込み命令だけバスを駆動する。読み出し命令はalways_ff側で結果を使う。
             cpu_state_t::EXEC: {
                 case (decoded_inst) {
+                    // JSRは復帰アドレスの上位からスタックへ積む。
                     inst_t::JSR: {
                         cpubus.addr  = {8'h01, reg_sp};
                         cpubus.wdata = high_byte(reg_pc + 16'd2);
                         cpubus.wen   = 1'b1;
                     }
+                    // RMWは6502のバス動作に合わせ、まず変更前の値を書き戻す。
                     inst_t::INC, inst_t::DEC, inst_t::ASL, inst_t::LSR, inst_t::ROL, inst_t::ROR: {
                         cpubus.addr  = eff_addr;
                         cpubus.wdata = cpubus.rdata;
                         cpubus.wen   = 1'b1;
                     }
-                    inst_t::STA: {
-                        case (addr_mode) {
-                            addr_mode_t::ZP: {
-                                cpubus.addr = {8'h00, op1};
-                            }
-                            addr_mode_t::ZPX: {
-                                cpubus.addr = {8'h00, op1 + reg_x};
-                            }
-                            addr_mode_t::INDX, addr_mode_t::INDY, addr_mode_t::ABS, addr_mode_t::ABSX,
-                            addr_mode_t::ABSY: {
-                                cpubus.addr = eff_addr;
-                            }
-                            default: {
-                                cpubus.addr = {8'h00, op1};
-                            }
+                    // STA/STX/STYは対象レジスタの値を実効アドレスへ書く。
+                    inst_t::STA, inst_t::STX, inst_t::STY: {
+                        cpubus.addr = eff_addr;
+                        case (decoded_inst) {
+                            inst_t::STA: cpubus.wdata = reg_a;
+                            inst_t::STX: cpubus.wdata = reg_x;
+                            inst_t::STY: cpubus.wdata = reg_y;
                         }
-                        cpubus.wdata = reg_a;
-                        cpubus.wen   = 1'b1;
-                    }
-                    inst_t::STX: {
-                        case (addr_mode) {
-                            addr_mode_t::ZP: {
-                                cpubus.addr = {8'h00, op1};
-                            }
-                            addr_mode_t::ZPY: {
-                                cpubus.addr = {8'h00, op1 + reg_y};
-                            }
-                            addr_mode_t::ABS: {
-                                cpubus.addr = eff_addr;
-                            }
-                            default: {
-                                cpubus.addr = {8'h00, op1};
-                            }
-                        }
-                        cpubus.wdata = reg_x;
-                        cpubus.wen   = 1'b1;
-                    }
-                    inst_t::STY: {
-                        case (addr_mode) {
-                            addr_mode_t::ZP: {
-                                cpubus.addr = {8'h00, op1};
-                            }
-                            addr_mode_t::ZPX: {
-                                cpubus.addr = {8'h00, op1 + reg_x};
-                            }
-                            addr_mode_t::ABS: {
-                                cpubus.addr = eff_addr;
-                            }
-                            default: {
-                                cpubus.addr = {8'h00, op1};
-                            }
-                        }
-                        cpubus.wdata = reg_y;
-                        cpubus.wen   = 1'b1;
+                        cpubus.wen = 1'b1;
                     }
                 }
             }
+            // 間接JMPの上位バイトを読む。ページ境界では6502固有の折り返しを行う。
+            cpu_state_t::JMP_IND_LO: {
+                cpubus.addr = {return_addr[15:8], return_addr[7:0] + 8'd1};
+                cpubus.ren  = 1;
+            }
+            // RMW命令で計算した変更後の値を実効アドレスへ書き戻す。
             cpu_state_t::RMW_WRITE: {
                 cpubus.addr  = eff_addr;
                 cpubus.wdata = op2;
                 cpubus.wen   = 1'b1;
             }
-            cpu_state_t::INT_PUSH_LO: {
+            // 割り込みまたはJSRの復帰アドレス下位をスタックへ書く。
+            cpu_state_t::INT_PUSH_LO, cpu_state_t::JSR_PUSH_LO: {
                 cpubus.addr  = {8'h01, reg_sp};
                 cpubus.wdata = return_addr[7:0];
                 cpubus.wen   = 1'b1;
             }
+            // 割り込み前に保存したステータスをスタックへ書く。
             cpu_state_t::INT_PUSH_P: {
                 cpubus.addr  = {8'h01, reg_sp};
                 cpubus.wdata = interrupt_status;
                 cpubus.wen   = 1'b1;
             }
+            // 選択済みの割り込みベクタ下位を読む。
             cpu_state_t::INT_VECTOR_LO: {
                 cpubus.addr = interrupt_vector;
+                cpubus.ren  = 1;
             }
+            // 選択済みの割り込みベクタ上位を読む。
             cpu_state_t::INT_VECTOR_HI: {
                 cpubus.addr = interrupt_vector + 16'd1;
+                cpubus.ren  = 1;
             }
-            cpu_state_t::JSR_PUSH_LO: {
-                cpubus.addr  = {8'h01, reg_sp};
-                cpubus.wdata = return_addr[7:0];
-                cpubus.wen   = 1'b1;
-            }
-            cpu_state_t::RTI_PULL_P: {
+            // RTI/RTSでは、現在値の受信と並行して次のスタック位置を読む。
+            cpu_state_t::RTI_PULL_P, cpu_state_t::RETURN_PULL_LO: {
+                // 現在の値を受け取るのと並行して、次のスタック値を読む。
                 cpubus.addr = {8'h01, reg_sp + 8'd2};
-            }
-            cpu_state_t::RTI_WAIT_LO: {
-                cpubus.addr = {8'h01, reg_sp + 8'd2};
-            }
-            cpu_state_t::RTS_PULL_LO: {
-                cpubus.addr = {8'h01, reg_sp + 8'd2};
-            }
-            cpu_state_t::RTS_WAIT_HI: {
-                cpubus.addr = {8'h01, reg_sp + 8'd1};
+                cpubus.ren  = 1;
             }
         }
 
         // CPU状態を保持している間は、同じ書き込みサイクルを再発行しない。
+        // 読み出しアドレスは保持してよいが、wenだけは必ず止める。
         if (stall || halt) {
+            cpubus.ren = 0;
             cpubus.wen = 0;
         }
     }
@@ -385,26 +499,27 @@ pub module cpu (
 
             if (!stall && !halt) {
                 case state {
-                    // 0xFFFCをセット
+                    // リセットベクタ下位（$FFFC）を読む。
                     cpu_state_t::RESET0: {
                         state = cpu_state_t::RESET1;
                     }
-                    // RESET0でセットした0xFFFCのデータが反映されるので読む
+                    // ベクタ下位をPCへ保存し、上位（$FFFD）を読む。
                     cpu_state_t::RESET1: {
                         reg_pc[7:0] = cpubus.rdata;
                         state       = cpu_state_t::RESET2;
                     }
-                    // RESET1でセットした0xFFFDのデータが反映されるので読む
+                    // ベクタ上位をPCへ保存し、最初の命令取得へ進む。
                     cpu_state_t::RESET2: {
                         reg_pc[15:8] = cpubus.rdata;
                         state        = cpu_state_t::FETCH;
                     }
-                    // PCを読み込む。opcodeは次のDECODEで受け取る。
+                    // PCが指すオペコードを読む。NMIも命令境界のここで開始する。
                     cpu_state_t::FETCH: {
                         if (nmi_pending) {
                             nmi_pending      = 0;
                             return_addr      = reg_pc;
                             interrupt_vector = NMI_VECTOR;
+                            // NMIで積むステータスはB=0、常に1として扱うbit 5は1にする。
                             interrupt_status = reg_p & 8'hEF | 8'h20;
                             reg_sp           = reg_sp - 1;
                             state            = cpu_state_t::INT_PUSH_LO;
@@ -412,6 +527,7 @@ pub module cpu (
                             state = cpu_state_t::DECODE;
                         }
                     }
+                    // オペコードを命令とアドレッシングモードへ変換する。
                     cpu_state_t::DECODE: {
                         let decode_entry: decode_entry_t = decode_opcode(cpubus.rdata);
                         decoded_inst = decode_entry.inst_kind;
@@ -420,90 +536,55 @@ pub module cpu (
 
                         if (decode_entry.inst_kind == inst_t::INVALID) {} else {
                             case (decode_entry.mode) {
+                                // オペランドを読まず、このDECODEステートから命令処理を開始する。
                                 addr_mode_t::IMPLIED: {
                                     case (decode_entry.inst_kind) {
+                                        // BRK: 次命令のPCとPを保存してIRQベクタへ進む。
                                         inst_t::BRK: {
                                             let brk_return_addr : logic<16> = reg_pc + decode_entry.len;
                                             return_addr      = brk_return_addr;
                                             interrupt_vector = IRQ_VECTOR;
+                                            // BRKでは、ハードウェア割り込みと区別するためB=1を積む。
                                             interrupt_status = reg_p | 8'h10;
                                             reg_sp           = reg_sp - 1;
                                             state            = cpu_state_t::INT_PUSH_LO;
                                         }
 
-                                        inst_t::PLP: {
+                                        // PLP/PLA: スタック読み出し値をEXECでレジスタへ反映する。
+                                        inst_t::PLP, inst_t::PLA: {
                                             state = cpu_state_t::EXEC;
                                         }
 
-                                        inst_t::PLA: {
-                                            state = cpu_state_t::EXEC;
-                                        }
-
+                                        // RTI: P、PC下位、PC上位の順にスタックから復元する。
                                         inst_t::RTI: {
                                             state = cpu_state_t::RTI_PULL_P;
                                         }
 
-                                        inst_t::PHA: {
+                                        // PHA/PHP: AまたはPを積み、SPを1減らす。
+                                        inst_t::PHA, inst_t::PHP: {
                                             reg_sp = reg_sp - 1;
                                             reg_pc = reg_pc + decode_entry.len;
                                             state  = cpu_state_t::FETCH;
                                         }
 
-                                        inst_t::PHP: {
-                                            reg_sp = reg_sp - 1;
-                                            reg_pc = reg_pc + decode_entry.len;
-                                            state  = cpu_state_t::FETCH;
-                                        }
-
-                                        // IRQフラグ無効
-                                        // NMIはIフラグに関係なく受け付ける
-                                        inst_t::SEI: {
-                                            reg_p[FLAG_INTERRUPT] = 1'b1;
-                                            state                 = cpu_state_t::FETCH;
-                                            reg_pc                = reg_pc + decode_entry.len;
-                                        }
-
-                                        inst_t::SEC: {
-                                            reg_p[FLAG_CARRY] = 1'b1;
-                                            state             = cpu_state_t::FETCH;
-                                            reg_pc            = reg_pc + decode_entry.len;
-                                        }
-
-                                        inst_t::CLI: {
-                                            reg_p[FLAG_INTERRUPT] = 1'b0;
-                                            state                 = cpu_state_t::FETCH;
-                                            reg_pc                = reg_pc + decode_entry.len;
-                                        }
-
-                                        inst_t::CLD: {
-                                            reg_p[FLAG_DECIMAL] = 1'b0;
-                                            state               = cpu_state_t::FETCH;
-                                            reg_pc              = reg_pc + decode_entry.len;
-                                        }
-
-                                        inst_t::CLC: {
-                                            reg_p[FLAG_CARRY] = 1'b0;
-                                            state             = cpu_state_t::FETCH;
-                                            reg_pc            = reg_pc + decode_entry.len;
-                                        }
-
-                                        inst_t::SED: {
-                                            reg_p[FLAG_DECIMAL] = 1'b1;
-                                            state               = cpu_state_t::FETCH;
-                                            reg_pc              = reg_pc + decode_entry.len;
-                                        }
-
-                                        inst_t::CLV: {
-                                            reg_p[FLAG_OVERFLOW] = 1'b0;
-                                            state                = cpu_state_t::FETCH;
-                                            reg_pc               = reg_pc + decode_entry.len;
-                                        }
-
-                                        inst_t::NOP: {
+                                        // フラグ命令はPの対象ビットだけを変更する。NOPではPを変更しない。
+                                        inst_t::SEI, inst_t::CLI, inst_t::SEC, inst_t::CLC, inst_t::SED, inst_t::CLD,
+                                        inst_t::CLV, inst_t::NOP: {
+                                            case (decode_entry.inst_kind) {
+                                                inst_t::SEI: reg_p[FLAG_INTERRUPT] = 1;
+                                                inst_t::CLI: reg_p[FLAG_INTERRUPT] = 0;
+                                                inst_t::SEC: reg_p[FLAG_CARRY]     = 1;
+                                                inst_t::CLC: reg_p[FLAG_CARRY]     = 0;
+                                                inst_t::SED: reg_p[FLAG_DECIMAL]   = 1;
+                                                inst_t::CLD: reg_p[FLAG_DECIMAL]   = 0;
+                                                inst_t::CLV: reg_p[FLAG_OVERFLOW]  = 0;
+                                                inst_t::NOP: {}
+                                            }
                                             state  = cpu_state_t::FETCH;
                                             reg_pc = reg_pc + decode_entry.len;
                                         }
 
+                                        // TXS: XをSPへコピーする。6502の仕様どおりZ/Nは変更しない。
                                         inst_t::TXS: {
                                             reg_sp = reg_x;
                                             // TXSはフラグ更新しない
@@ -511,124 +592,81 @@ pub module cpu (
                                             reg_pc = reg_pc + decode_entry.len;
                                         }
 
+                                        // TSX: SPをXへコピーし、結果に応じてZ/Nを更新する。
                                         inst_t::TSX: {
-                                            reg_x                = reg_sp;
-                                            reg_p[FLAG_ZERO]     = (reg_sp == 0);
-                                            reg_p[FLAG_NEGATIVE] = reg_sp[7];
-                                            state                = cpu_state_t::FETCH;
-                                            reg_pc               = reg_pc + decode_entry.len;
+                                            reg_x  = reg_sp;
+                                            reg_p  = update_zn(reg_p, reg_sp);
+                                            state  = cpu_state_t::FETCH;
+                                            reg_pc = reg_pc + decode_entry.len;
                                         }
 
-                                        inst_t::TAX: {
-                                            reg_x                = reg_a;
-                                            reg_p[FLAG_ZERO]     = (reg_a == 0);
-                                            reg_p[FLAG_NEGATIVE] = reg_a[7];
-                                            state                = cpu_state_t::FETCH;
-                                            reg_pc               = reg_pc + decode_entry.len;
+                                        // TAX/TAY: AをXまたはYへコピーし、Z/Nを更新する。
+                                        inst_t::TAX, inst_t::TAY: {
+                                            if decode_entry.inst_kind == inst_t::TAX {
+                                                reg_x = reg_a;
+                                            } else {
+                                                reg_y = reg_a;
+                                            }
+                                            reg_p  = update_zn(reg_p, reg_a);
+                                            state  = cpu_state_t::FETCH;
+                                            reg_pc = reg_pc + decode_entry.len;
                                         }
 
-                                        inst_t::TXA: {
-                                            reg_a                = reg_x;
-                                            reg_p[FLAG_ZERO]     = (reg_x == 0);
-                                            reg_p[FLAG_NEGATIVE] = reg_x[7];
-                                            state                = cpu_state_t::FETCH;
-                                            reg_pc               = reg_pc + decode_entry.len;
+                                        // TXA/TYA: XまたはYをAへコピーし、Z/Nを更新する。
+                                        inst_t::TXA, inst_t::TYA: {
+                                            let value : logic<8> = if decode_entry.inst_kind == inst_t::TXA ?
+                                                reg_x
+                                            :
+                                                reg_y
+                                            ;
+                                            reg_a  = value;
+                                            reg_p  = update_zn(reg_p, value);
+                                            state  = cpu_state_t::FETCH;
+                                            reg_pc = reg_pc + decode_entry.len;
                                         }
 
-                                        inst_t::TAY: {
-                                            reg_y                = reg_a;
-                                            reg_p[FLAG_ZERO]     = (reg_a == 0);
-                                            reg_p[FLAG_NEGATIVE] = reg_a[7];
-                                            state                = cpu_state_t::FETCH;
-                                            reg_pc               = reg_pc + decode_entry.len;
+                                        // アキュムレータ形式のシフト・ローテート命令。
+                                        inst_t::ASL, inst_t::LSR, inst_t::ROL, inst_t::ROR: {
+                                            let result: alu_result_t = alu_execute(
+                                                decode_entry.inst_kind,
+                                                reg_a,
+                                                0,
+                                                reg_p,
+                                            );
+                                            reg_a  = result.value;
+                                            reg_p  = result.status;
+                                            state  = cpu_state_t::FETCH;
+                                            reg_pc = reg_pc + decode_entry.len;
                                         }
 
-                                        inst_t::TYA: {
-                                            reg_a                = reg_y;
-                                            reg_p[FLAG_ZERO]     = (reg_y == 0);
-                                            reg_p[FLAG_NEGATIVE] = reg_y[7];
-                                            state                = cpu_state_t::FETCH;
-                                            reg_pc               = reg_pc + decode_entry.len;
+                                        // X/Yのインクリメント・デクリメント。結果でZ/Nを更新する。
+                                        inst_t::INX, inst_t::INY, inst_t::DEX, inst_t::DEY: {
+                                            let old_value: logic       <8> = if decode_entry.inst_kind == inst_t::INX
+                                                || decode_entry.inst_kind == inst_t::DEX ?
+                                                reg_x
+                                            :
+                                                reg_y
+                                            ;
+                                            let result   : alu_result_t    = alu_execute(
+                                                decode_entry.inst_kind,
+                                                old_value,
+                                                0,
+                                                reg_p,
+                                            );
+                                            if (decode_entry.inst_kind == inst_t::INX || decode_entry.inst_kind
+                                                == inst_t::DEX) {
+                                                reg_x = result.value;
+                                            } else {
+                                                reg_y = result.value;
+                                            }
+                                            reg_p  = result.status;
+                                            state  = cpu_state_t::FETCH;
+                                            reg_pc = reg_pc + decode_entry.len;
                                         }
 
-                                        inst_t::ASL: {
-                                            let result              : logic<8> = reg_a << 1;
-                                            reg_p[FLAG_CARRY]    = reg_a[7];
-                                            reg_p[FLAG_ZERO]     = (result == 0);
-                                            reg_p[FLAG_NEGATIVE] = result[7];
-                                            reg_a                = result;
-                                            state                = cpu_state_t::FETCH;
-                                            reg_pc               = reg_pc + decode_entry.len;
-                                        }
-
-                                        inst_t::LSR: {
-                                            let result              : logic<8> = reg_a >> 1;
-                                            reg_p[FLAG_CARRY]    = reg_a[0];
-                                            reg_p[FLAG_ZERO]     = (result == 0);
-                                            reg_p[FLAG_NEGATIVE] = 1'b0;
-                                            reg_a                = result;
-                                            state                = cpu_state_t::FETCH;
-                                            reg_pc               = reg_pc + decode_entry.len;
-                                        }
-
-                                        inst_t::ROL: {
-                                            let result              : logic<8> = {reg_a[6:0], reg_p[FLAG_CARRY]};
-                                            reg_p[FLAG_CARRY]    = reg_a[7];
-                                            reg_p[FLAG_ZERO]     = (result == 0);
-                                            reg_p[FLAG_NEGATIVE] = result[7];
-                                            reg_a                = result;
-                                            state                = cpu_state_t::FETCH;
-                                            reg_pc               = reg_pc + decode_entry.len;
-                                        }
-
-                                        inst_t::ROR: {
-                                            let result              : logic<8> = {reg_p[FLAG_CARRY], reg_a[7:1]};
-                                            reg_p[FLAG_CARRY]    = reg_a[0];
-                                            reg_p[FLAG_ZERO]     = (result == 0);
-                                            reg_p[FLAG_NEGATIVE] = result[7];
-                                            reg_a                = result;
-                                            state                = cpu_state_t::FETCH;
-                                            reg_pc               = reg_pc + decode_entry.len;
-                                        }
-
-                                        inst_t::INX: {
-                                            let result              : logic<8> = reg_x + 1;
-                                            reg_x                = result;
-                                            reg_p[FLAG_ZERO]     = (result == 0);
-                                            reg_p[FLAG_NEGATIVE] = result[7];
-                                            state                = cpu_state_t::FETCH;
-                                            reg_pc               = reg_pc + decode_entry.len;
-                                        }
-
-                                        inst_t::INY: {
-                                            let result              : logic<8> = reg_y + 1;
-                                            reg_y                = result;
-                                            reg_p[FLAG_ZERO]     = (result == 0);
-                                            reg_p[FLAG_NEGATIVE] = result[7];
-                                            state                = cpu_state_t::FETCH;
-                                            reg_pc               = reg_pc + decode_entry.len;
-                                        }
-
-                                        inst_t::DEX: {
-                                            let result              : logic<8> = reg_x - 1;
-                                            reg_x                = result;
-                                            reg_p[FLAG_ZERO]     = (result == 0);
-                                            reg_p[FLAG_NEGATIVE] = result[7];
-                                            state                = cpu_state_t::FETCH;
-                                            reg_pc               = reg_pc + decode_entry.len;
-                                        }
-
-                                        inst_t::DEY: {
-                                            let result              : logic<8> = reg_y - 1;
-                                            reg_y                = result;
-                                            reg_p[FLAG_ZERO]     = (result == 0);
-                                            reg_p[FLAG_NEGATIVE] = result[7];
-                                            state                = cpu_state_t::FETCH;
-                                            reg_pc               = reg_pc + decode_entry.len;
-                                        }
-
+                                        // RTS: スタックからJSRの復帰アドレスを取り出す。
                                         inst_t::RTS: {
-                                            state = cpu_state_t::RTS_PULL_LO;
+                                            state = cpu_state_t::RETURN_PULL_LO;
                                         }
 
                                         default: {
@@ -636,65 +674,42 @@ pub module cpu (
                                         }
                                     }
                                 }
-                                addr_mode_t::IMM, addr_mode_t::ZP, addr_mode_t::ZPX, addr_mode_t::ZPY,
-                                addr_mode_t::INDX, addr_mode_t::INDY, addr_mode_t::REL: {
-                                    state = cpu_state_t::OP1;
-                                }
-
-                                addr_mode_t::ABS, addr_mode_t::ABSX, addr_mode_t::ABSY, addr_mode_t::IND: {
-                                    state = cpu_state_t::OP1;
-                                }
+                                // オペランドを持つモードでは、値やアドレスを読むOP1へ進む。
                                 default: {
-                                    state = cpu_state_t::FETCH;
+                                    state = cpu_state_t::OP1;
                                 }
                             }
                         }
                     }
 
+                    // 第1オペランドを受け取り、モードに応じて実効アドレスを作り始める。
                     cpu_state_t::OP1: {
                         case (addr_mode) {
+                            // 即値と相対分岐では、命令直後の1バイト自体が演算値になる。
                             addr_mode_t::IMM, addr_mode_t::REL: {
                                 op1   = cpubus.rdata;
                                 state = cpu_state_t::EXEC;
                             }
-                            addr_mode_t::ZP: {
+                            // ゼロページ系はalways_combで計算済みの実効アドレスを使う。
+                            addr_mode_t::ZP, addr_mode_t::ZPX, addr_mode_t::ZPY: {
                                 op1      = cpubus.rdata;
-                                eff_addr = {8'h00, cpubus.rdata};
+                                eff_addr = cpubus.addr;
                                 state    = cpu_state_t::EXEC;
                             }
-                            addr_mode_t::ZPX: {
-                                op1      = cpubus.rdata;
-                                eff_addr = {8'h00, cpubus.rdata + reg_x};
-                                state    = cpu_state_t::EXEC;
-                            }
-                            addr_mode_t::ZPY: {
-                                op1      = cpubus.rdata;
-                                eff_addr = {8'h00, cpubus.rdata + reg_y};
-                                state    = cpu_state_t::EXEC;
-                            }
+                            // INDXはオペランドへXを加えたゼロページ位置をポインタ先頭にする。
                             addr_mode_t::INDX: {
                                 op1      = cpubus.rdata;
                                 ptr_addr = cpubus.rdata + reg_x;
                                 state    = cpu_state_t::OP2;
                             }
+                            // INDYはオペランドのゼロページ位置をポインタ先頭にする。
                             addr_mode_t::INDY: {
                                 op1      = cpubus.rdata;
                                 ptr_addr = cpubus.rdata;
                                 state    = cpu_state_t::OP2;
                             }
-                            addr_mode_t::ABS: {
-                                op1   = cpubus.rdata;
-                                state = cpu_state_t::OP2;
-                            }
-                            addr_mode_t::ABSX: {
-                                op1   = cpubus.rdata;
-                                state = cpu_state_t::OP2;
-                            }
-                            addr_mode_t::ABSY: {
-                                op1   = cpubus.rdata;
-                                state = cpu_state_t::OP2;
-                            }
-                            addr_mode_t::IND: {
+                            // 3バイト命令ではop1へアドレス下位を保存し、上位の受信へ進む。
+                            addr_mode_t::ABS, addr_mode_t::ABSX, addr_mode_t::ABSY, addr_mode_t::IND: {
                                 op1   = cpubus.rdata;
                                 state = cpu_state_t::OP2;
                             }
@@ -704,18 +719,17 @@ pub module cpu (
                         }
                     }
 
+                    // 第2オペランド、または間接アドレスの下位バイトを受け取る。
                     cpu_state_t::OP2: {
                         case (addr_mode) {
-                            addr_mode_t::INDX: {
+                            // 間接モードではポインタ下位を保存し、上位の受信へ進む。
+                            addr_mode_t::INDX, addr_mode_t::INDY: {
                                 op1   = cpubus.rdata;
                                 state = cpu_state_t::OP3;
                             }
-                            addr_mode_t::INDY: {
-                                op1   = cpubus.rdata;
-                                state = cpu_state_t::OP3;
-                            }
-                            addr_mode_t::ABS: {
-                                eff_addr = {cpubus.rdata, op1};
+                            // 絶対系は上下バイトを結合し、必要ならX/Yを加える。
+                            addr_mode_t::ABS, addr_mode_t::ABSX, addr_mode_t::ABSY: {
+                                eff_addr = indexed_addr(addr_mode, {cpubus.rdata, op1}, reg_x, reg_y);
                                 if (decoded_inst == inst_t::JMP) {
                                     reg_pc = {cpubus.rdata, op1};
                                     state  = cpu_state_t::FETCH;
@@ -723,14 +737,7 @@ pub module cpu (
                                     state = cpu_state_t::EXEC;
                                 }
                             }
-                            addr_mode_t::ABSX: {
-                                eff_addr = {cpubus.rdata, op1} + reg_x;
-                                state    = cpu_state_t::EXEC;
-                            }
-                            addr_mode_t::ABSY: {
-                                eff_addr = {cpubus.rdata, op1} + reg_y;
-                                state    = cpu_state_t::EXEC;
-                            }
+                            // 間接JMPでは上下バイトを飛び先ではなくポインタとして保存する。
                             addr_mode_t::IND: {
                                 return_addr = {cpubus.rdata, op1};
                                 state       = cpu_state_t::JMP_IND_LO;
@@ -741,15 +748,13 @@ pub module cpu (
                         }
                     }
 
+                    // 間接アドレス上位を受け取り、実効アドレスを完成する。
                     cpu_state_t::OP3: {
                         case (addr_mode) {
+                            // INDXはポインタ値をそのまま使い、INDYだけYを加える。
                             addr_mode_t::INDX, addr_mode_t::INDY: {
-                                if (addr_mode == addr_mode_t::INDX) {
-                                    eff_addr = {cpubus.rdata, op1};
-                                } else {
-                                    eff_addr = {cpubus.rdata, op1} + reg_y;
-                                }
-                                state = cpu_state_t::EXEC;
+                                eff_addr = indexed_addr(addr_mode, {cpubus.rdata, op1}, reg_x, reg_y);
+                                state    = cpu_state_t::EXEC;
                             }
                             default: {
                                 state = cpu_state_t::FETCH;
@@ -757,292 +762,113 @@ pub module cpu (
                         }
                     }
 
+                    // JMP (addr)の飛び先下位バイトを受け取る。
                     cpu_state_t::JMP_IND_LO: {
                         op1 = cpubus.rdata;
                         // 6502のJMP ($xxFF)バグ: high byteは次ページではなく同じページの$xx00から読む
                         state = cpu_state_t::JMP_IND_HI;
                     }
 
+                    // JMP (addr)の飛び先上位バイトを受け取り、PCを更新する。
                     cpu_state_t::JMP_IND_HI: {
                         reg_pc = {cpubus.rdata, op1};
                         state  = cpu_state_t::FETCH;
                     }
 
+                    // 読み出した値を使い、演算、ロード、ストア、分岐を実行する。
                     cpu_state_t::EXEC: {
-                        let exec_data    : logic       <8>  = if addr_mode == addr_mode_t::IMM || addr_mode
-                            == addr_mode_t::REL ?
+                        let exec_data: logic<8> = if addr_mode == addr_mode_t::IMM || addr_mode == addr_mode_t::REL ?
                             op1
                         :
                             cpubus.rdata
                         ;
-                        let branch_offset: signed logic<16> = {exec_data[7] repeat 8, exec_data};
+                        // 相対分岐の8ビットオフセットを符号付き16ビットへ拡張する。
+                        let branch_offset: signed logic<16> = exec_data as signed_byte_t;
                         case (decoded_inst) {
-                            // C=0なら分岐する
-                            inst_t::BCC: {
-                                if (reg_p[FLAG_CARRY] == 0) {
-                                    reg_pc = reg_pc + 16'd2 + branch_offset;
-                                } else {
-                                    reg_pc = reg_pc + 2;
-                                }
-                                state = cpu_state_t::FETCH;
-                            }
-
-                            // C=1なら分岐する
-                            inst_t::BCS: {
-                                if (reg_p[FLAG_CARRY] == 1) {
-                                    reg_pc = reg_pc + 16'd2 + branch_offset;
-                                } else {
-                                    reg_pc = reg_pc + 2;
-                                }
-                                state = cpu_state_t::FETCH;
-                            }
-
-                            // Z=0なら分岐する
-                            inst_t::BNE: {
-                                if (reg_p[FLAG_ZERO] == 0) {
-                                    reg_pc = reg_pc + 16'd2 + branch_offset;
-                                } else {
-                                    reg_pc = reg_pc + 2;
-                                }
-                                state = cpu_state_t::FETCH;
-                            }
-
-                            // Z=1なら分岐する
-                            inst_t::BEQ: {
-                                if (reg_p[FLAG_ZERO] == 1) {
-                                    reg_pc = reg_pc + 16'd2 + branch_offset;
-                                } else {
-                                    reg_pc = reg_pc + 2;
-                                }
-                                state = cpu_state_t::FETCH;
-                            }
-
-                            // N=0なら分岐する
-                            inst_t::BPL: {
-                                if (reg_p[FLAG_NEGATIVE] == 0) {
-                                    reg_pc = reg_pc + 16'd2 + branch_offset;
-                                } else {
-                                    reg_pc = reg_pc + 2;
-                                }
-                                state = cpu_state_t::FETCH;
-                            }
-
-                            // N=1なら分岐する
-                            inst_t::BMI: {
-                                if (reg_p[FLAG_NEGATIVE] == 1) {
-                                    reg_pc = reg_pc + 16'd2 + branch_offset;
-                                } else {
-                                    reg_pc = reg_pc + 2;
-                                }
-                                state = cpu_state_t::FETCH;
-                            }
-
-                            // V=0なら分岐する
-                            inst_t::BVC: {
-                                if (reg_p[FLAG_OVERFLOW] == 0) {
-                                    reg_pc = reg_pc + 16'd2 + branch_offset;
-                                } else {
-                                    reg_pc = reg_pc + 2;
-                                }
-                                state = cpu_state_t::FETCH;
-                            }
-
-                            // V=1なら分岐する
+                            // 8種類の分岐命令は、参照するフラグだけが異なる。
+                            inst_t::BCC, inst_t::BCS, inst_t::BNE, inst_t::BEQ, inst_t::BPL, inst_t::BMI, inst_t::BVC,
                             inst_t::BVS: {
-                                if (reg_p[FLAG_OVERFLOW] == 1) {
+                                if (branch_taken(decoded_inst, reg_p)) {
                                     reg_pc = reg_pc + 16'd2 + branch_offset;
                                 } else {
-                                    reg_pc = reg_pc + 2;
+                                    reg_pc = reg_pc + 16'd2;
                                 }
                                 state = cpu_state_t::FETCH;
                             }
 
+                            // JMP: 計算済みの実効アドレスをそのまま次のPCにする。
                             inst_t::JMP: {
                                 reg_pc = eff_addr;
                                 state  = cpu_state_t::FETCH;
                             }
 
                             inst_t::JSR: {
+                                // JSRは命令末尾を保存し、RTS側で1を足して次の命令へ戻る。
                                 return_addr = reg_pc + 16'd2;
                                 reg_sp      = reg_sp - 1;
                                 state       = cpu_state_t::JSR_PUSH_LO;
                             }
 
+                            // PLP: スタックからPを復元し、SPを戻す。
                             inst_t::PLP: {
+                                // ステータスのbit 5はスタック上の値にかかわらず1として扱う。
                                 reg_p  = exec_data | 8'h20;
                                 reg_sp = reg_sp + 1;
                                 reg_pc = reg_pc + inst_len;
                                 state  = cpu_state_t::FETCH;
                             }
 
+                            // PLA: スタックからAを復元し、その値でZ/Nを更新する。
                             inst_t::PLA: {
-                                reg_a                = exec_data;
-                                reg_p[FLAG_ZERO]     = (exec_data == 0);
-                                reg_p[FLAG_NEGATIVE] = exec_data[7];
-                                reg_sp               = reg_sp + 1;
-                                reg_pc               = reg_pc + inst_len;
-                                state                = cpu_state_t::FETCH;
+                                reg_a  = exec_data;
+                                reg_p  = update_zn(reg_p, exec_data);
+                                reg_sp = reg_sp + 1;
+                                reg_pc = reg_pc + inst_len;
+                                state  = cpu_state_t::FETCH;
                             }
 
-                            inst_t::LDA: {
-                                reg_a                = exec_data;
-                                reg_p[FLAG_ZERO]     = (exec_data == 0);
-                                reg_p[FLAG_NEGATIVE] = exec_data[7];
-                                reg_pc               = reg_pc + inst_len;
-                                state                = cpu_state_t::FETCH;
-                            }
-                            inst_t::LDX: {
-                                reg_x                = exec_data;
-                                reg_p[FLAG_ZERO]     = (exec_data == 0);
-                                reg_p[FLAG_NEGATIVE] = exec_data[7];
-                                reg_pc               = reg_pc + inst_len;
-                                state                = cpu_state_t::FETCH;
-                            }
-                            inst_t::LDY: {
-                                reg_y                = exec_data;
-                                reg_p[FLAG_ZERO]     = (exec_data == 0);
-                                reg_p[FLAG_NEGATIVE] = exec_data[7];
-                                reg_pc               = reg_pc + inst_len;
-                                state                = cpu_state_t::FETCH;
-                            }
-                            inst_t::CPX: {
-                                let result              : logic<8> = reg_x - exec_data;
-                                reg_p[FLAG_CARRY]    = (reg_x >= exec_data);
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_NEGATIVE] = result[7];
-                                reg_pc               = reg_pc + inst_len;
-                                state                = cpu_state_t::FETCH;
-                            }
-                            inst_t::CPY: {
-                                let result              : logic<8> = reg_y - exec_data;
-                                reg_p[FLAG_CARRY]    = (reg_y >= exec_data);
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_NEGATIVE] = result[7];
-                                reg_pc               = reg_pc + inst_len;
-                                state                = cpu_state_t::FETCH;
-                            }
-                            inst_t::CMP: {
-                                let result              : logic<8> = reg_a - exec_data;
-                                reg_p[FLAG_CARRY]    = (reg_a >= exec_data);
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_NEGATIVE] = result[7];
-                                reg_pc               = reg_pc + inst_len;
-                                state                = cpu_state_t::FETCH;
-                            }
-                            inst_t::ADC: {
-                                let old_a               : logic<8> = reg_a;
-                                let sum                 : logic<9> = {1'b0, old_a} + {1'b0, exec_data}
-                                    + {8'h00, reg_p[FLAG_CARRY]};
-                                let result              : logic<8> = sum[7:0];
-                                reg_a                = result;
-                                reg_p[FLAG_CARRY]    = sum[8];
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_OVERFLOW] = ((old_a ^ result) & (exec_data ^ result) & 8'h80) != 0;
-                                reg_p[FLAG_NEGATIVE] = result[7];
-                                reg_pc               = reg_pc + inst_len;
-                                state                = cpu_state_t::FETCH;
-                            }
-                            inst_t::SBC: {
-                                let old_a               : logic<8> = reg_a;
-                                let inv_mem             : logic<8> = ~exec_data;
-                                let sum                 : logic<9> = {1'b0, old_a} + {1'b0, inv_mem}
-                                    + {8'h00, reg_p[FLAG_CARRY]};
-                                let result              : logic<8> = sum[7:0];
-                                reg_a                = result;
-                                reg_p[FLAG_CARRY]    = sum[8];
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_OVERFLOW] = ((old_a ^ result) & (inv_mem ^ result) & 8'h80) != 0;
-                                reg_p[FLAG_NEGATIVE] = result[7];
-                                reg_pc               = reg_pc + inst_len;
-                                state                = cpu_state_t::FETCH;
-                            }
-                            inst_t::ORA: {
-                                let result              : logic<8> = reg_a | exec_data;
-                                reg_a                = result;
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_NEGATIVE] = result[7];
-                                reg_pc               = reg_pc + inst_len;
-                                state                = cpu_state_t::FETCH;
-                            }
-                            inst_t::INC: {
-                                let result              : logic<8> = exec_data + 1;
-                                op2                  = result;
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_NEGATIVE] = result[7];
-                                state                = cpu_state_t::RMW_WRITE;
-                            }
-                            inst_t::DEC: {
-                                let result              : logic<8> = exec_data - 1;
-                                op2                  = result;
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_NEGATIVE] = result[7];
-                                state                = cpu_state_t::RMW_WRITE;
-                            }
-                            inst_t::ASL: {
-                                let result              : logic<8> = exec_data << 1;
-                                op2                  = result;
-                                reg_p[FLAG_CARRY]    = exec_data[7];
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_NEGATIVE] = result[7];
-                                state                = cpu_state_t::RMW_WRITE;
-                            }
-                            inst_t::LSR: {
-                                let result              : logic<8> = exec_data >> 1;
-                                op2                  = result;
-                                reg_p[FLAG_CARRY]    = exec_data[0];
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_NEGATIVE] = 1'b0;
-                                state                = cpu_state_t::RMW_WRITE;
-                            }
-                            inst_t::ROL: {
-                                let result              : logic<8> = {exec_data[6:0], reg_p[FLAG_CARRY]};
-                                op2                  = result;
-                                reg_p[FLAG_CARRY]    = exec_data[7];
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_NEGATIVE] = result[7];
-                                state                = cpu_state_t::RMW_WRITE;
-                            }
-                            inst_t::ROR: {
-                                let result              : logic<8> = {reg_p[FLAG_CARRY], exec_data[7:1]};
-                                op2                  = result;
-                                reg_p[FLAG_CARRY]    = exec_data[0];
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_NEGATIVE] = result[7];
-                                state                = cpu_state_t::RMW_WRITE;
-                            }
-                            inst_t::AND: {
-                                let result              : logic<8> = reg_a & exec_data;
-                                reg_a                = result;
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_NEGATIVE] = result[7];
-                                reg_pc               = reg_pc + inst_len;
-                                state                = cpu_state_t::FETCH;
-                            }
-                            inst_t::EOR: {
-                                let result              : logic<8> = reg_a ^ exec_data;
-                                reg_a                = result;
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_NEGATIVE] = result[7];
-                                reg_pc               = reg_pc + inst_len;
-                                state                = cpu_state_t::FETCH;
-                            }
-                            inst_t::BIT: {
-                                let result              : logic<8> = reg_a & exec_data;
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_OVERFLOW] = exec_data[6];
-                                reg_p[FLAG_NEGATIVE] = exec_data[7];
-                                reg_pc               = reg_pc + inst_len;
-                                state                = cpu_state_t::FETCH;
-                            }
-                            inst_t::STA: {
+                            // ロード命令は読み出した値を対象レジスタへ入れ、Z/Nを更新する。
+                            inst_t::LDA, inst_t::LDX, inst_t::LDY: {
+                                case (decoded_inst) {
+                                    inst_t::LDA: reg_a = exec_data;
+                                    inst_t::LDX: reg_x = exec_data;
+                                    inst_t::LDY: reg_y = exec_data;
+                                }
+                                reg_p  = update_zn(reg_p, exec_data);
                                 reg_pc = reg_pc + inst_len;
                                 state  = cpu_state_t::FETCH;
                             }
-                            inst_t::STX: {
+                            // 比較とBITはフラグだけを書き戻す。
+                            inst_t::CMP, inst_t::CPX, inst_t::CPY, inst_t::BIT: {
+                                let left  : logic       <8> = if decoded_inst == inst_t::CPX ?
+                                    reg_x
+                                : if decoded_inst == inst_t::CPY ?
+                                    reg_y
+                                :
+                                    reg_a
+                                ;
+                                let result: alu_result_t    = alu_execute(decoded_inst, left, exec_data, reg_p);
+                                reg_p  = result.status;
                                 reg_pc = reg_pc + inst_len;
                                 state  = cpu_state_t::FETCH;
                             }
-                            inst_t::STY: {
+                            // 算術・論理命令はAとフラグを書き戻す。
+                            inst_t::ADC, inst_t::SBC, inst_t::ORA, inst_t::AND, inst_t::EOR: {
+                                let result: alu_result_t = alu_execute(decoded_inst, reg_a, exec_data, reg_p);
+                                reg_a  = result.value;
+                                reg_p  = result.status;
+                                reg_pc = reg_pc + inst_len;
+                                state  = cpu_state_t::FETCH;
+                            }
+                            // メモリ上の値を変更して書き戻す命令。
+                            inst_t::INC, inst_t::DEC, inst_t::ASL, inst_t::LSR, inst_t::ROL, inst_t::ROR: {
+                                let result: alu_result_t = alu_execute(decoded_inst, exec_data, 0, reg_p);
+                                op2    = result.value;
+                                reg_p  = result.status;
+                                state  = cpu_state_t::RMW_WRITE;
+                            }
+                            // ストア値はalways_comb側で書き込み済みなので、PCだけ進める。
+                            inst_t::STA, inst_t::STX, inst_t::STY: {
                                 reg_pc = reg_pc + inst_len;
                                 state  = cpu_state_t::FETCH;
                             }
@@ -1051,62 +877,64 @@ pub module cpu (
                             }
                         }
                     }
+                    // Read-Modify-Write命令の変更後の値を書き戻し、命令を完了する。
                     cpu_state_t::RMW_WRITE: {
                         reg_pc = reg_pc + inst_len;
                         state  = cpu_state_t::FETCH;
                     }
-                    cpu_state_t::INT_PUSH_LO: {
+                    // 割り込みまたはJSRの復帰アドレス下位を積み、SPを進める。
+                    cpu_state_t::INT_PUSH_LO, cpu_state_t::JSR_PUSH_LO: {
                         reg_sp = reg_sp - 1;
-                        state  = cpu_state_t::INT_PUSH_P;
+                        if state == cpu_state_t::JSR_PUSH_LO {
+                            reg_pc = eff_addr;
+                            state  = cpu_state_t::FETCH;
+                        } else {
+                            state = cpu_state_t::INT_PUSH_P;
+                        }
                     }
+                    // 割り込み前のPを積み、Iフラグを立てる。
                     cpu_state_t::INT_PUSH_P: {
                         reg_sp                = reg_sp - 1;
                         reg_p[FLAG_INTERRUPT] = 1'b1;
                         state                 = cpu_state_t::INT_VECTOR_LO;
                     }
+                    // 割り込みベクタ下位を読む。
                     cpu_state_t::INT_VECTOR_LO: {
-                        state = cpu_state_t::INT_VECTOR_LO_WAIT;
-                    }
-                    cpu_state_t::INT_VECTOR_LO_WAIT: {
-                        op1   = cpubus.rdata;
                         state = cpu_state_t::INT_VECTOR_HI;
                     }
+                    // 上位アドレスを出しながら、前サイクルに読んだ下位バイトを保存する。
                     cpu_state_t::INT_VECTOR_HI: {
+                        op1   = cpubus.rdata;
                         state = cpu_state_t::INT_VECTOR_HI_READ;
                     }
+                    // ベクタ上位を受け取り、割り込み先PCを完成する。
                     cpu_state_t::INT_VECTOR_HI_READ: {
                         reg_pc = {cpubus.rdata, op1};
                         state  = cpu_state_t::FETCH;
                     }
-                    cpu_state_t::JSR_PUSH_LO: {
-                        reg_sp = reg_sp - 1;
-                        reg_pc = eff_addr;
-                        state  = cpu_state_t::FETCH;
-                    }
+                    // RTIでPをスタックから復元する。
                     cpu_state_t::RTI_PULL_P: {
+                        // RTIもPLPと同様に、復元後のbit 5を1に保つ。
                         reg_p  = cpubus.rdata | 8'h20;
                         reg_sp = reg_sp + 1;
-                        state  = cpu_state_t::RTI_WAIT_LO;
+                        state  = cpu_state_t::RETURN_PULL_LO;
                     }
-                    cpu_state_t::RTI_WAIT_LO: {
+                    // RTS/RTIで復帰PC下位をスタックから復元する。
+                    cpu_state_t::RETURN_PULL_LO: {
                         op1    = cpubus.rdata;
                         reg_sp = reg_sp + 1;
-                        state  = cpu_state_t::RTI_PULL_HI;
+                        state  = cpu_state_t::RETURN_PULL_HI;
                     }
-                    cpu_state_t::RTI_PULL_HI: {
+                    // RTS/RTIで復帰PC上位を復元し、命令取得へ戻る。
+                    cpu_state_t::RETURN_PULL_HI: {
                         reg_sp = reg_sp + 1;
-                        reg_pc = {cpubus.rdata, op1};
-                        state  = cpu_state_t::FETCH;
-                    }
-                    cpu_state_t::RTS_PULL_LO: {
-                        op1    = cpubus.rdata;
-                        reg_sp = reg_sp + 1;
-                        state  = cpu_state_t::RTS_WAIT_HI;
-                    }
-                    cpu_state_t::RTS_WAIT_HI: {
-                        reg_sp = reg_sp + 1;
-                        reg_pc = {cpubus.rdata, op1} + 16'd1;
-                        state  = cpu_state_t::FETCH;
+                        if decoded_inst == inst_t::RTS {
+                            // RTSはJSRが保存した戻り先（JSR末尾）から、次の命令へ進めて復帰する。
+                            reg_pc = {cpubus.rdata, op1} + 16'd1;
+                        } else {
+                            reg_pc = {cpubus.rdata, op1};
+                        }
+                        state = cpu_state_t::FETCH;
                     }
                     default: {
                         state = cpu_state_t::RESET0;

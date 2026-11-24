@@ -17,6 +17,7 @@ module test_memory_read_write {
     initial {
         stall        = 0;
         membus.addr  = 0;
+        membus.ren   = 1;
         membus.wen   = 0;
         membus.wdata = 0;
 
@@ -32,6 +33,15 @@ module test_memory_read_write {
         clk.next();
         $display("Memory read: addr=%h data=%h", membus.addr, membus.rdata);
         $assert(membus.rdata == 8'hA5);
+
+        // ren=0では、アドレスを変えても読み出しデータを更新しない。
+        membus.ren   = 0;
+        membus.addr  = 4'h5;
+        membus.wen   = 1;
+        membus.wdata = 8'hC3;
+        clk.next();
+        $assert(membus.rdata == 8'hA5);
+        membus.ren = 1;
 
         // Neither writes nor the registered read output advance while stalled.
         stall        = 1;

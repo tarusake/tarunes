@@ -49,6 +49,9 @@ test-bus-cpu:
 test-cpu:
 	veryl test --test test_cpu_program_execution --no-capture
 
+test-cpu-hex:
+	veryl test --test test_cpu_program_from_hex --no-capture
+
 test-cpu-alu:
 	veryl test --test test_cpu_alu_and_flags --no-capture
 
@@ -99,6 +102,9 @@ test-cpu-write-pause:
 
 test-bus-ppu:
 	veryl test --test test_bus_ppu_decode --no-capture
+
+test-cartridge-bus:
+	veryl test --test test_cartridge_bus --no-capture
 
 test-memory:
 	veryl test --test test_memory_read_write --no-capture
@@ -157,4 +163,4 @@ run-fast: fast-build
 clean:
 	rm -rf obj_dir obj_dir_fast target *.vcd *.fst *.fst.hier
 
-.PHONY: all build run fast-build run-fast clean veryl-fmt veryl-build test test-controller test-oam-dma test-bus-cpu test-cpu test-cpu-alu test-cpu-addressing test-cpu-branch test-cpu-stack test-cpu-interrupt test-cpu-rmw test-cpu-jmp-indirect test-cpu-pause test-cpu-acc-shift test-cpu-register test-cpu-bit test-cpu-store test-cpu-zp-wrap test-cpu-page-cross test-cpu-interrupt-detail test-cpu-write-pause test-bus-ppu test-memory test-i2s test-sfc-controller test-hdmi-scaler test-apu test-apu-pulse rom
+.PHONY: all build run fast-build run-fast clean veryl-fmt veryl-build test test-controller test-oam-dma test-bus-cpu test-cpu test-cpu-hex test-cpu-alu test-cpu-addressing test-cpu-branch test-cpu-stack test-cpu-interrupt test-cpu-rmw test-cpu-jmp-indirect test-cpu-pause test-cpu-acc-shift test-cpu-register test-cpu-bit test-cpu-store test-cpu-zp-wrap test-cpu-page-cross test-cpu-interrupt-detail test-cpu-write-pause test-bus-ppu test-cartridge-bus test-memory test-i2s test-sfc-controller test-hdmi-scaler test-apu test-apu-pulse rom

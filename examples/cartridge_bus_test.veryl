@@ -1,0 +1,94 @@
+#[test(test_cartridge_bus)]
+module test_cartridge_bus {
+    inst clk: $tb::clock_gen;
+    inst rst: $tb::reset_gen ( clk );
+
+    inst cpu_bus: bus_if::<8, 15>;
+    inst ppu_bus: bus_if::<8, 13>;
+
+    var stall       : logic    ;
+    var cpu_selected: logic    ;
+    var cpu_addr    : logic<15>;
+    var cpu_data_i  : logic<8> ;
+    var cpu_data_o  : logic<8> ;
+    var cpu_data_oe : logic    ;
+    var cpu_rnw     : logic    ;
+    var cpu_romsel_n: logic    ;
+    var cpu_m2      : logic    ;
+    var ppu_selected: logic    ;
+    var ppu_addr    : logic<14>;
+    var ppu_data_i  : logic<8> ;
+    var ppu_data_o  : logic<8> ;
+    var ppu_data_oe : logic    ;
+    var ppu_rd_n    : logic    ;
+    var ppu_wr_n    : logic    ;
+
+    inst dut: cartridge_bus (
+        clk           ,
+        rst           ,
+        stall         ,
+        cpu_selected  ,
+        cpu_bus       ,
+        cpu_addr      ,
+        cpu_data_i    ,
+        cpu_data_o    ,
+        cpu_data_oe   ,
+        cpu_rnw       ,
+        cpu_romsel_n  ,
+        cpu_m2        ,
+        ppu_selected  ,
+        ppu_bus       ,
+        ppu_addr      ,
+        ppu_data_i    ,
+        ppu_data_o    ,
+        ppu_data_oe   ,
+        ppu_rd_n      ,
+        ppu_wr_n      ,
+    );
+
+    initial {
+        stall         = 0;
+        cpu_selected  = 0;
+        cpu_bus.addr  = 0;
+        cpu_bus.ren   = 1;
+        cpu_bus.wen   = 0;
+        cpu_bus.wdata = 0;
+        cpu_data_i    = 0;
+        ppu_selected  = 0;
+        ppu_bus.addr  = 0;
+        ppu_bus.ren   = 1;
+        ppu_bus.wen   = 0;
+        ppu_bus.wdata = 0;
+        ppu_data_i    = 0;
+
+        rst.assert();
+
+        cpu_selected = 1;
+        cpu_bus.addr = 15'h4123;
+        cpu_data_i   = 8'hA5;
+        $assert(cpu_addr == 15'h4123);
+        $assert(!cpu_romsel_n && cpu_m2 && cpu_rnw && !cpu_data_oe);
+        clk.next();
+        $assert(cpu_bus.rdata == 8'hA5);
+
+        cpu_bus.ren   = 0;
+        cpu_bus.wen   = 1;
+        cpu_bus.wdata = 8'h3C;
+        $assert(cpu_data_oe && !cpu_rnw && cpu_data_o == 8'h3C);
+
+        cpu_bus.wen  = 0;
+        ppu_selected = 1;
+        ppu_bus.addr = 13'h1234;
+        ppu_data_i   = 8'h5A;
+        $assert(!ppu_rd_n && ppu_wr_n && !ppu_data_oe);
+        clk.next();
+        $assert(ppu_bus.rdata == 8'h5A);
+
+        ppu_bus.ren   = 0;
+        ppu_bus.wen   = 1;
+        ppu_bus.wdata = 8'hC3;
+        $assert(ppu_rd_n && !ppu_wr_n && ppu_data_oe && ppu_data_o == 8'hC3);
+
+        $finish();
+    }
+}

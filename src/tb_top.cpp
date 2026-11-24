@@ -22,7 +22,8 @@
 
 namespace {
 
-constexpr uint8_t CPU_STATE_DECODE = 5;
+constexpr uint8_t CPU_STATE_DECODE = 4;
+constexpr uint8_t CPU_STATE_FETCH = 3;
 constexpr int NES_WIDTH = 256;
 constexpr int NES_HEIGHT = 240;
 constexpr int HDMI_WIDTH = 720;
@@ -284,10 +285,45 @@ bool isReadInst(const char* mnemonic) {
 
 class CpuTracer {
 public:
-    void trace(Vtarunes_top* dut, int frameCount, uint64_t cpuCycle) {
+    ~CpuTracer() { finish(); }
+
+    bool openKonata(const char* path) {
+        konata_ = std::fopen(path, "w");
+        if (konata_ == nullptr) {
+            std::perror("fopen");
+            return false;
+        }
+        std::fprintf(konata_, "Kanata\t0004\nC=\t0\n");
+        return true;
+    }
+
+    void finish() {
+        if (konata_ == nullptr) return;
+        if (activeInstruction_) {
+            std::fprintf(konata_, "R\t%llu\t%llu\t0\n",
+                         static_cast<unsigned long long>(instructionId_),
+                         static_cast<unsigned long long>(instructionId_));
+        }
+        std::fclose(konata_);
+        konata_ = nullptr;
+        activeInstruction_ = false;
+    }
+
+    void trace(Vtarunes_top* dut, int frameCount, uint64_t cpuCycle, bool printTrace) {
         auto* root = dut->rootp;
         const uint8_t state = root->tarunes_top__DOT__cpu_inst__DOT__state;
         const bool enteringDecode = state == CPU_STATE_DECODE && prevState_ != CPU_STATE_DECODE;
+        const bool enteringFetch = state == CPU_STATE_FETCH && prevState_ != CPU_STATE_FETCH;
+        writeCycle(cpuCycle);
+        if (konata_ != nullptr && enteringFetch) {
+            retireActiveInstruction();
+            if (!root->tarunes_top__DOT__cpu_inst__DOT__nmi_pending) {
+                startInstruction(root, frameCount, cpuCycle);
+            }
+        } else if (konata_ != nullptr && activeInstruction_ && state != prevState_) {
+            std::fprintf(konata_, "S\t%llu\t0\t%s\n",
+                         static_cast<unsigned long long>(instructionId_), stateName(state));
+        }
         prevState_ = state;
         if (!enteringDecode) {
             return;
@@ -302,31 +338,86 @@ public:
         const std::string bytes = formatBytes(info.len, opcode, op1, op2);
         const std::string flags = formatFlags(root->tarunes_top__DOT__cpu_inst__DOT__reg_p);
 
-        std::printf(
-            "%04X    %-30s A:%02X X:%02X Y:%02X S:%02X P:%s V:%-3d H:%-3d Fr:%-3d Cycle:%llu BC:%s\n",
-            pc,
-            disasm.c_str(),
-            root->tarunes_top__DOT__cpu_inst__DOT__reg_a,
-            root->tarunes_top__DOT__cpu_inst__DOT__reg_x,
-            root->tarunes_top__DOT__cpu_inst__DOT__reg_y,
-            root->tarunes_top__DOT__cpu_inst__DOT__reg_sp,
-            flags.c_str(),
-            static_cast<int>(dut->scanline),
-            static_cast<int>(dut->cycle),
-            frameCount,
-            static_cast<unsigned long long>(cpuCycle),
-            bytes.c_str());
+        if (printTrace) {
+            std::printf(
+                "%04X    %-30s A:%02X X:%02X Y:%02X S:%02X P:%s V:%-3d H:%-3d Fr:%-3d Cycle:%llu BC:%s\n",
+                pc, disasm.c_str(), root->tarunes_top__DOT__cpu_inst__DOT__reg_a,
+                root->tarunes_top__DOT__cpu_inst__DOT__reg_x,
+                root->tarunes_top__DOT__cpu_inst__DOT__reg_y,
+                root->tarunes_top__DOT__cpu_inst__DOT__reg_sp, flags.c_str(),
+                static_cast<int>(dut->scanline), static_cast<int>(dut->cycle), frameCount,
+                static_cast<unsigned long long>(cpuCycle), bytes.c_str());
+        }
+
     }
 
 private:
     uint8_t prevState_ = 0xff;
+    FILE* konata_ = nullptr;
+    uint64_t instructionId_ = 0;
+    uint64_t konataCycle_ = 0;
+    bool activeInstruction_ = false;
+
+    void retireActiveInstruction() {
+        if (!activeInstruction_) return;
+        std::fprintf(konata_, "R\t%llu\t%llu\t0\n",
+                     static_cast<unsigned long long>(instructionId_),
+                     static_cast<unsigned long long>(instructionId_));
+        instructionId_++;
+        activeInstruction_ = false;
+    }
+
+    void startInstruction(Vtarunes_top___024root* root, int frameCount, uint64_t cpuCycle) {
+        const uint16_t pc = root->tarunes_top__DOT__cpu_inst__DOT__reg_pc;
+        const uint8_t opcode = readByte(root, pc);
+        const uint8_t op1 = readByte(root, pc + 1);
+        const uint8_t op2 = readByte(root, pc + 2);
+        const OpcodeInfo info = decodeOpcode(opcode);
+        const std::string disasm = formatDisasm(root, pc, info, op1, op2);
+        const std::string bytes = formatBytes(info.len, opcode, op1, op2);
+        const std::string flags = formatFlags(root->tarunes_top__DOT__cpu_inst__DOT__reg_p);
+
+        std::fprintf(konata_, "I\t%llu\t%llu\t0\n",
+                     static_cast<unsigned long long>(instructionId_),
+                     static_cast<unsigned long long>(instructionId_));
+        std::fprintf(konata_, "L\t%llu\t0\t$%s: %s [%s]\n",
+                     static_cast<unsigned long long>(instructionId_), hex16(pc).c_str(),
+                     disasm.c_str(), bytes.c_str());
+        std::fprintf(konata_, "L\t%llu\t1\tA:%02X X:%02X Y:%02X S:%02X P:%s Frame:%d CPU cycle:%llu\n",
+                     static_cast<unsigned long long>(instructionId_),
+                     root->tarunes_top__DOT__cpu_inst__DOT__reg_a,
+                     root->tarunes_top__DOT__cpu_inst__DOT__reg_x,
+                     root->tarunes_top__DOT__cpu_inst__DOT__reg_y,
+                     root->tarunes_top__DOT__cpu_inst__DOT__reg_sp,
+                     flags.c_str(), frameCount, static_cast<unsigned long long>(cpuCycle));
+        std::fprintf(konata_, "S\t%llu\t0\tFetch\n",
+                     static_cast<unsigned long long>(instructionId_));
+        activeInstruction_ = true;
+    }
+
+    void writeCycle(uint64_t cpuCycle) {
+        if (konata_ == nullptr || cpuCycle == konataCycle_) return;
+        std::fprintf(konata_, "C\t%llu\n",
+                     static_cast<unsigned long long>(cpuCycle - konataCycle_));
+        konataCycle_ = cpuCycle;
+    }
+
+    const char* stateName(uint8_t state) const {
+        static constexpr std::array<const char*, 24> names = {
+            "Reset0", "Reset1", "Reset2", "Fetch", "Decode", "Op1", "Op2", "Op3",
+            "JmpIndLo", "JmpIndHi", "Execute", "RmwWrite", "IntPushLo", "IntPushP",
+            "IntVectorLo", "IntVectorLoWait", "IntVectorHi", "IntVectorHiRead",
+            "JsrPushLo", "RtiPullP", "RtiWaitLo", "RtiPullHi", "RtsPullLo", "RtsWaitHi",
+        };
+        return state < names.size() ? names[state] : "Unknown";
+    }
 
     uint8_t readByte(Vtarunes_top___024root* root, uint16_t addr) const {
         if (addr < 0x2000) {
             return root->tarunes_top__DOT__wram__DOT__mem[addr & 0x07ff];
         }
         if (addr >= 0x8000) {
-            return root->tarunes_top__DOT__prom__DOT__mem[addr & 0x7fff];
+            return root->tarunes_top__DOT__g_internal_rom__DOT__prom__DOT__mem[addr & 0x7fff];
         }
         return 0;
     }
@@ -337,7 +428,7 @@ private:
             return true;
         }
         if (addr >= 0x8000) {
-            *value = root->tarunes_top__DOT__prom__DOT__mem[addr & 0x7fff];
+            *value = root->tarunes_top__DOT__g_internal_rom__DOT__prom__DOT__mem[addr & 0x7fff];
             return true;
         }
         if (addr == 0x2002) {
@@ -674,6 +765,7 @@ int main(int argc, char** argv) {
     int frame_limit = -1;
     const char* vram_dump_path = nullptr;
     const char* ppu_write_log_path = nullptr;
+    const char* konata_log_path = nullptr;
     const char* audio_dump_path = "apu.wav";
     bool capture_hdmi = false;
     bool dump_state = false;
@@ -689,6 +781,8 @@ int main(int argc, char** argv) {
             vram_dump_path = argv[++i];
         } else if (std::strcmp(argv[i], "--log-ppu-writes") == 0 && i + 1 < argc) {
             ppu_write_log_path = argv[++i];
+        } else if (std::strcmp(argv[i], "--konata") == 0 && i + 1 < argc) {
+            konata_log_path = argv[++i];
         } else if (std::strcmp(argv[i], "--dump-audio") == 0 && i + 1 < argc) {
             audio_dump_path = argv[++i];
         } else if (std::strcmp(argv[i], "--dump-state") == 0) {
@@ -806,6 +900,9 @@ int main(int argc, char** argv) {
     }
     uint64_t cpu_cycle = 0;
     CpuTracer cpu_tracer;
+    if (konata_log_path != nullptr && !cpu_tracer.openKonata(konata_log_path)) {
+        return 1;
+    }
     FILE* ppu_write_log = nullptr;
     unsigned event_poll_countdown = 0;
     if (ppu_write_log_path != nullptr) {
@@ -892,8 +989,8 @@ int main(int argc, char** argv) {
         if (dut->rst) {
             cpu_cycle++;
         }
-        if (!fast_mode) {
-            cpu_tracer.trace(dut, frame_count, cpu_cycle);
+        if (!fast_mode || konata_log_path != nullptr) {
+            cpu_tracer.trace(dut, frame_count, cpu_cycle, !fast_mode);
         }
         if (ppu_write_log != nullptr) {
             auto* ppu_regbus = dut->rootp->__PVT__tarunes_top__DOT__cpu_ppubus;
@@ -1055,6 +1152,7 @@ int main(int argc, char** argv) {
     if (ppu_write_log != nullptr) {
         std::fclose(ppu_write_log);
     }
+    cpu_tracer.finish();
     delete dut;
     return 0;
 }

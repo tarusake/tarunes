@@ -1,0 +1,57 @@
+/// NES/ファミコン実カセットのPRG/CHRバスとコア内部バスの境界。
+///
+/// FPGAトップでは`*_data_i/o/oe`を双方向パッドと外付けレベル変換器へ接続する。
+/// このモジュール自身はトライステートを生成しないため、ボードごとのI/Oプリミティブや
+/// 方向制御付きレベル変換器をトップ層に閉じ込められる。
+///
+/// 現段階の`cpu_m2`はPRG領域アクセス中に有効になるNROM検証用アクセスストローブ。
+/// MMC系マッパーに対応する前に、CPUコアのサイクル位相から連続M2を生成する。
+pub module cartridge_bus (
+    clk         : input   clock                     ,
+    rst         : input   reset                     ,
+    stall       : input   logic                     ,
+    cpu_selected: input   logic                     ,
+    cpu_bus     : modport bus_if::<8, 15>::slave    ,
+    cpu_addr    : output  logic                 <15>,
+    cpu_data_i  : input   logic                 <8> ,
+    cpu_data_o  : output  logic                 <8> ,
+    cpu_data_oe : output  logic                     ,
+    cpu_rnw     : output  logic                     ,
+    cpu_romsel_n: output  logic                     ,
+    cpu_m2      : output  logic                     ,
+    ppu_selected: input   logic                     ,
+    ppu_bus     : modport bus_if::<8, 13>::slave    ,
+    ppu_addr    : output  logic                 <14>,
+    ppu_data_i  : input   logic                 <8> ,
+    ppu_data_o  : output  logic                 <8> ,
+    ppu_data_oe : output  logic                     ,
+    ppu_rd_n    : output  logic                     ,
+    ppu_wr_n    : output  logic                     ,
+) {
+    assign cpu_addr     = cpu_bus.addr;
+    assign cpu_data_o   = cpu_bus.wdata;
+    assign cpu_data_oe  = cpu_selected && cpu_bus.wen;
+    assign cpu_rnw      = !cpu_bus.wen;
+    assign cpu_romsel_n = !cpu_selected;
+    assign cpu_m2       = cpu_selected && (cpu_bus.ren || cpu_bus.wen);
+
+    assign ppu_addr    = ppu_bus.addr;
+    assign ppu_data_o  = ppu_bus.wdata;
+    assign ppu_data_oe = ppu_selected && ppu_bus.wen;
+    assign ppu_rd_n    = !(ppu_selected && ppu_bus.ren);
+    assign ppu_wr_n    = !(ppu_selected && ppu_bus.wen);
+
+    always_ff {
+        if_reset {
+            cpu_bus.rdata = 0;
+            ppu_bus.rdata = 0;
+        } else if !stall {
+            if cpu_selected && cpu_bus.ren {
+                cpu_bus.rdata = cpu_data_i;
+            }
+            if ppu_selected && ppu_bus.ren {
+                ppu_bus.rdata = ppu_data_i;
+            }
+        }
+    }
+}

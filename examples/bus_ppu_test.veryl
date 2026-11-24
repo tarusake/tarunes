@@ -1,5 +1,6 @@
 #[test(test_bus_ppu_decode)]
 module test_bus_ppu_decode {
+    var crom_selected: logic;
     inst clk: $tb::clock_gen;
     inst rst: $tb::reset_gen ( clk );
 
@@ -10,17 +11,19 @@ module test_bus_ppu_decode {
     inst vrambus: bus_if::<8, 11>;
 
     inst dut: bus_ppu (
-        clk    : clk    ,
-        rst    : rst    ,
-        stall  : stall  ,
-        ppubus : ppubus ,
-        crombus: crombus,
-        vrambus: vrambus,
+        clk          : clk          ,
+        rst          : rst          ,
+        stall        : stall        ,
+        crom_selected: crom_selected,
+        ppubus       : ppubus       ,
+        crombus      : crombus      ,
+        vrambus      : vrambus      ,
     );
 
     initial {
         stall         = 0;
         ppubus.addr   = 0;
+        ppubus.ren    = 1;
         ppubus.wen    = 0;
         ppubus.wdata  = 0;
         crombus.rdata = 8'hC1;

@@ -94,12 +94,10 @@ module test_cpu_stack_and_subroutine {
                     16'h0010: {
                         result_10      = cpubus.wdata;
                         result_seen[0] = 1;
-                        $display("Stack PLA result=%h", cpubus.wdata);
                     }
                     16'h0011: {
                         result_11      = cpubus.wdata;
                         result_seen[1] = 1;
-                        $display("Stack JSR/RTS result=%h", cpubus.wdata);
                     }
                     default: {}
                 }
@@ -112,13 +110,23 @@ module test_cpu_stack_and_subroutine {
         halt  = 0;
         rst.assert();
         clk.next(180);
-        $display("Stack summary: pc=%h sp=%h stack_fd=%h stack_fc=%h", debug_pc, dut.reg_sp, stack_fd, stack_fc);
+
         $assert(result_seen == 2'b11);
         $assert(result_10 == 8'h5A);
-        $assert(result_11 == 8'hA5);
+        $display("PHA/PLA: A=$5A -> stack -> A=%h OK", result_10);
+
         $assert(status_seen);
+        $assert(dut.reg_p[0]);
+        $display("PHP/PLP: carry restored to %b OK", dut.reg_p[0]);
+
+        $assert(result_11 == 8'hA5);
+        $assert(stack_fd == 8'h80);
+        $assert(stack_fc == 8'h10);
+        $display("JSR: saved return address=%h%h OK", stack_fd, stack_fc);
+
         $assert(dut.reg_sp == 8'hFD);
         $assert(debug_pc == 16'h8013);
+        $display("RTS: A=%h PC=%h SP=%h OK", result_11, debug_pc, dut.reg_sp);
         $finish();
     }
 }

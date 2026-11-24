@@ -136,7 +136,6 @@ module test_cpu_register_transfer_increment {
                     }
                     default: {}
                 }
-                $display("Register test write: addr=%h data=%h", cpubus.addr, cpubus.wdata);
             }
         }
     }
@@ -146,11 +145,17 @@ module test_cpu_register_transfer_increment {
         halt  = 0;
         rst.assert();
         clk.next(220);
-        $display("Register summary: pc=%h results=%d flags=%d sp=%h", debug_pc, results, flags, dut.reg_sp);
         $assert(results == 9);
         $assert(flags == 5);
         $assert(dut.reg_sp == 8'hF9);
         $assert(debug_pc == 16'h8036);
+        $display("TAX/TXA: $80 transferred both ways OK");
+        $display("TAY/TYA: $00 transferred both ways OK");
+        $display("TXS/TSX: SP=$7F transferred without changing flags OK");
+        $display("INX: $FF -> $00, Z=1 OK");
+        $display("INY: $7F -> $80, N=1 OK");
+        $display("DEX: $00 -> $FF, N=1 OK");
+        $display("DEY: $01 -> $00, Z=1 OK");
         $finish();
     }
 }

@@ -100,6 +100,7 @@ pub module ppu (
 
     always_comb {
         ppubus.addr  = ppu_addr_render;
+        ppubus.ren   = 1;
         ppubus.wen   = 0;
         ppubus.wdata = 0;
 
@@ -212,7 +213,7 @@ pub module ppu (
                         reg_v = reg_v + (if reg_ctrl.vram_increment ? 32 : 1);
                     }
                 }
-            } else {
+            } else if (cpubus.ren) {
                 case (cpubus.addr) {
                     PPUSTATUS_ADDR: {
                         cpubus.rdata      = reg_status;

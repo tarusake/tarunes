@@ -146,15 +146,6 @@ module test_cpu_interrupt_details {
         clk.next(1);
         nmi = 0;
         clk.next(50);
-        $display(
-            "NMI detail: pc=%h stack=%h,%h,%h pushes=%d early=%b",
-            debug_pc,
-            stack_fd,
-            stack_fc,
-            stack_fb,
-            nmi_push_count,
-            early_push,
-        );
         $assert(!early_push);
         $assert(nmi_done);
         $assert(nmi_push_count == 3);
@@ -163,10 +154,17 @@ module test_cpu_interrupt_details {
         $assert(stack_fb == 8'h24);
         $assert(dut.reg_a == 8'h5A);
         $assert(dut.reg_sp == 8'hFD);
+        $display(
+            "NMI/RTI: stack PC=%h%h P=%h pushes=%d SP=%h OK",
+            stack_fd,
+            stack_fc,
+            stack_fb,
+            nmi_push_count,
+            dut.reg_sp,
+        );
 
         brk_phase = 1;
         clk.next(70);
-        $display("BRK detail: pc=%h stack=%h,%h,%h pushes=%d", debug_pc, stack_fd, stack_fc, stack_fb, brk_push_count);
         $assert(brk_done);
         $assert(brk_push_count == 3);
         $assert(stack_fd == 8'h80);
@@ -174,6 +172,15 @@ module test_cpu_interrupt_details {
         $assert(stack_fb == 8'h34);
         $assert(dut.reg_sp == 8'hFD);
         $assert(debug_pc == 16'h8012);
+        $display(
+            "BRK/RTI: stack PC=%h%h P=%h pushes=%d return PC=%h SP=%h OK",
+            stack_fd,
+            stack_fc,
+            stack_fb,
+            brk_push_count,
+            debug_pc,
+            dut.reg_sp,
+        );
         $finish();
     }
 }

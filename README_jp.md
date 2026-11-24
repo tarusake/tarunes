@@ -133,6 +133,14 @@ make run ARGS=--fast
 make run ROM=sample
 ```
 
+[Konata](https://github.com/shioyadan/Konata) 用の CPU 実行トレースを生成する場合:
+
+```bash
+make run-fast ARGS="--konata tarunes.log --frames 1"
+```
+
+`tarunes.log` を Konata で開くと、命令ごとの CPU 内部状態遷移を確認できます。PC、逆アセンブル、命令バイト列、レジスタ値、フレーム番号、CPU サイクルも記録されます。
+
 フレーム数を指定して終了する場合:
 
 ```bash
@@ -154,6 +162,7 @@ make run-fast ARGS="--capture-hdmi --frames 10"
 - `--dump-audio PATH`: WAV 出力先を指定
 - `--dump-vram PATH`: 終了時に VRAM をダンプ
 - `--log-ppu-writes PATH`: `$2006` / `$2007` 書き込みログを出力
+- `--konata PATH`: Kanata v4 形式の CPU 実行トレースを出力
 - `--dump-state`: 終了時に PPU / WRAM の簡易状態を出力
 
 終了時には最終フレーム画像 `last_frame.png` と WAV 音声 `apu.wav` が生成されます。

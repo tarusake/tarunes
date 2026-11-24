@@ -65,6 +65,7 @@ module test_apu_pulse_timing_and_duty {
         stall        = 0;
         bus_stall    = 0;
         cpubus.addr  = 0;
+        cpubus.ren   = 1;
         cpubus.wen   = 0;
         cpubus.wdata = 0;
 

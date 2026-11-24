@@ -12,7 +12,8 @@
 /// | `$8000-$FFFF` | PRG ROM | `A[14:0]` |
 ///
 /// 読み出し先の選択信号をクロックエッジでレジスタに保存し、次のサイクルで
-/// `cpubus.rdata`を選択する。書き込みは要求サイクル中に組み合わせ回路で
+/// `cpubus.rdata`を選択する。`ren`または`wen`が1のアクセスだけを接続先へ転送し、
+/// 書き込みはアクセスサイクル中に組み合わせ回路で
 /// 転送する。OAM DMA動作中はDMAがワークRAMとPPUレジスタポートを占有し、
 /// `cpu_halt`でCPUコアを停止する。
 ///
@@ -27,21 +28,22 @@
 /// ], head: {text: 'CPU読出：要求の次サイクルに応答'}}
 /// ```
 pub module bus_cpu (
-    clk        : input   clock                     ,
-    rst        : input   reset                     ,
-    stall      : input   logic                     ,
-    dma_busy   : input   logic                     ,
-    dma_start  : output  logic                     ,
-    dma_page   : output  logic                  <8>,
-    cpu_halt   : output  logic                     ,
-    cpubus     : modport bus_if::<8, 16>::slave    ,
-    cpu_ppubus : modport bus_if::<8, 3>::master    ,
-    dma_ppubus : modport bus_if::<8, 3>::slave     ,
-    apubus     : modport bus_if::<8, 5>::master    ,
-    ctrlbus    : modport bus_if::<8, 1>::master    ,
-    dma_wrambus: modport bus_if::<8, 11>::slave    ,
-    wrambus    : modport bus_if::<8, 11>::master   ,
-    prombus    : modport bus_if::<8, 15>::master   ,
+    clk          : input   clock                     ,
+    rst          : input   reset                     ,
+    stall        : input   logic                     ,
+    dma_busy     : input   logic                     ,
+    dma_start    : output  logic                     ,
+    dma_page     : output  logic                  <8>,
+    cpu_halt     : output  logic                     ,
+    prom_selected: output  logic                     ,
+    cpubus       : modport bus_if::<8, 16>::slave    ,
+    cpu_ppubus   : modport bus_if::<8, 3>::master    ,
+    dma_ppubus   : modport bus_if::<8, 3>::slave     ,
+    apubus       : modport bus_if::<8, 5>::master    ,
+    ctrlbus      : modport bus_if::<8, 1>::master    ,
+    dma_wrambus  : modport bus_if::<8, 11>::slave    ,
+    wrambus      : modport bus_if::<8, 11>::master   ,
+    prombus      : modport bus_if::<8, 15>::master   ,
 ) {
     import nes_pkg::*;
 
@@ -54,15 +56,16 @@ pub module bus_cpu (
     var oamdma_write_d: logic;
 
     // Addr sel
-    assign sel_wram   = cpubus.addr <= CPU_RAM_END;
-    assign sel_ppu    = cpubus.addr >= PPU_REG_BASE && cpubus.addr <= PPU_REG_END;
-    assign sel_ctrl   = cpubus.addr == CONTROLLER1_ADDR || (cpubus.addr == CONTROLLER2_ADDR && !cpubus.wen);
-    assign sel_oamdma = cpubus.addr == OAM_DMA_ADDR;
-    assign sel_apu    = (cpubus.addr >= APU_REG_BASE && cpubus.addr <= APU_STATUS_ADDR && !sel_oamdma)
+    assign sel_wram      = cpubus.addr <= CPU_RAM_END;
+    assign sel_ppu       = cpubus.addr >= PPU_REG_BASE && cpubus.addr <= PPU_REG_END;
+    assign sel_ctrl      = cpubus.addr == CONTROLLER1_ADDR || (cpubus.addr == CONTROLLER2_ADDR && !cpubus.wen);
+    assign sel_oamdma    = cpubus.addr == OAM_DMA_ADDR;
+    assign sel_apu       = (cpubus.addr >= APU_REG_BASE && cpubus.addr <= APU_STATUS_ADDR && !sel_oamdma)
         || (cpubus.addr == CONTROLLER2_ADDR && cpubus.wen);
-    assign sel_prom   = cpubus.addr >= PRG_ROM_BASE;
-    assign dma_start  = cpubus.wen && sel_oamdma && !oamdma_write_d && !dma_busy;
-    assign dma_page   = cpubus.wdata;
+    assign sel_prom      = cpubus.addr >= PRG_ROM_BASE;
+    assign prom_selected = (cpubus.ren || cpubus.wen) && sel_prom && !dma_busy;
+    assign dma_start     = cpubus.wen && sel_oamdma && !oamdma_write_d && !dma_busy;
+    assign dma_page      = cpubus.wdata;
     // $4014の書き込みサイクルは完了させ、DMAがbusyになった次のサイクルからCPUを停止する。
     // dma_startを含めるとCPU側の書き込み抑止と組み合わせループになる。
     assign cpu_halt = dma_busy;
@@ -76,19 +79,25 @@ pub module bus_cpu (
 
     // Write bus assign
     assign wrambus.wdata     = if dma_busy ? dma_wrambus.wdata : if sel_wram ? cpubus.wdata : 0;
+    assign wrambus.ren       = if dma_busy ? dma_wrambus.ren : cpubus.ren && sel_wram;
     assign wrambus.wen       = if dma_busy ? dma_wrambus.wen : if sel_wram ? cpubus.wen : 0;
     assign cpu_ppubus.wdata  = if dma_busy ? dma_ppubus.wdata : if sel_ppu ? cpubus.wdata : 0;
+    assign cpu_ppubus.ren    = if dma_busy ? dma_ppubus.ren : cpubus.ren && sel_ppu;
     assign cpu_ppubus.wen    = if dma_busy ? dma_ppubus.wen : if sel_ppu ? cpubus.wen : 0;
     assign apubus.wdata      = cpubus.wdata;
+    assign apubus.ren        = !dma_busy && cpubus.ren && sel_apu;
     assign apubus.wen        = !dma_busy && sel_apu && cpubus.wen;
     assign ctrlbus.wdata     = cpubus.wdata;
+    assign ctrlbus.ren       = !dma_busy && cpubus.ren && sel_ctrl;
     assign ctrlbus.wen       = !dma_busy && sel_ctrl && cpubus.wen;
     assign dma_wrambus.rdata = wrambus.rdata;
     assign dma_ppubus.rdata  = cpu_ppubus.rdata;
 
-    // rom
-    assign prombus.wdata = 0;
-    assign prombus.wen   = 0;
+    // 実カセットではこの書き込みがマッパーレジスタを更新する。
+    // 内蔵ROM側はread_only_memoryで書き込みを無視する。
+    assign prombus.wdata = cpubus.wdata;
+    assign prombus.ren   = !dma_busy && cpubus.ren && sel_prom;
+    assign prombus.wen   = !dma_busy && sel_prom && cpubus.wen;
 
     // Read bus decode
     var sel_prom_d: logic;
@@ -107,11 +116,11 @@ pub module bus_cpu (
             oamdma_write_d = 0;
         } else if !stall {
             oamdma_write_d = cpubus.wen && sel_oamdma;
-            sel_prom_d     = sel_prom && !dma_busy;
-            sel_ppu_d      = sel_ppu && !dma_busy;
-            sel_wram_d     = sel_wram && !dma_busy;
-            sel_ctrl_d     = sel_ctrl && !dma_busy;
-            sel_apu_d      = sel_apu && !dma_busy;
+            sel_prom_d     = cpubus.ren && sel_prom && !dma_busy;
+            sel_ppu_d      = cpubus.ren && sel_ppu && !dma_busy;
+            sel_wram_d     = cpubus.ren && sel_wram && !dma_busy;
+            sel_ctrl_d     = cpubus.ren && sel_ctrl && !dma_busy;
+            sel_apu_d      = cpubus.ren && sel_apu && !dma_busy;
         }
     }
 

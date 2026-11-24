@@ -34,6 +34,7 @@ module test_apu_registers_and_status {
         stall        = 0;
         bus_stall    = 0;
         cpubus.addr  = 0;
+        cpubus.ren   = 1;
         cpubus.wen   = 0;
         cpubus.wdata = 0;
 
