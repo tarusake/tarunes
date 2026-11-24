@@ -187,6 +187,7 @@ pub module apu (
     var frame_counter          : logic<15>;
     var frame_counter_write    : logic    ;
     var frame_counter_mode_next: logic    ;
+    var frame_counter_tick     : logic    ;
     var frame_quarter_tick     : logic    ;
     var frame_half_tick        : logic    ;
     var frame_counter_last     : logic    ;
@@ -256,16 +257,20 @@ pub module apu (
     assign noise_volume       = if noise_reg_ctrl.constant_volume ? noise_reg_ctrl.volume : noise_env_decay;
     assign noise_level        = if noise_enabled && noise_length_counter != 0 && !noise_shift[0] ? noise_volume : 4'd0;
 
-    assign pulse_mix_level    = {1'b0, pulse1_level} + {1'b0, pulse2_level};
-    assign tnd_mix_index      = {triangle_level, noise_level};
-    assign audio_mix_level    = {1'b0, PULSE_MIX_TABLE[pulse_mix_level]} + {1'b0, TND_MIX_TABLE[tnd_mix_index]};
-    assign audio_sample       = 8'h80 + audio_mix_level;
+    assign pulse_mix_level = {1'b0, pulse1_level} + {1'b0, pulse2_level};
+    assign tnd_mix_index   = {triangle_level, noise_level};
+    assign audio_mix_level = {1'b0, PULSE_MIX_TABLE[pulse_mix_level]} + {1'b0, TND_MIX_TABLE[tnd_mix_index]};
+    assign audio_sample    = 8'h80 + audio_mix_level;
+    // FRAME_STEP_*はCPU 2クロック（APU 1クロック）単位の値。
+    // 27 MHz入力を3分周したCPU相当クロックの片相だけで進めないと、
+    // エンベロープと長さカウンタが2倍速になり、音の余韻が早く消えてしまう。
+    assign frame_counter_tick = apu_tick_div == 2 && !apu_half_tick;
     assign frame_quarter_tick = (frame_counter_write && frame_counter_mode_next)
-        || (apu_tick_div == 2
+        || (frame_counter_tick
             && (frame_counter == FRAME_STEP_1 || frame_counter == FRAME_STEP_2 || frame_counter == FRAME_STEP_3
                 || (if frame_counter_mode ? frame_counter == FRAME_STEP_5 : frame_counter == FRAME_STEP_4)));
     assign frame_half_tick    = (frame_counter_write && frame_counter_mode_next)
-        || (apu_tick_div == 2
+        || (frame_counter_tick
             && (frame_counter == FRAME_STEP_2
                 || (if frame_counter_mode ? frame_counter == FRAME_STEP_5 : frame_counter == FRAME_STEP_4)));
     assign frame_counter_last = if frame_counter_mode ? frame_counter == FRAME_STEP_5 : frame_counter == FRAME_STEP_4;
@@ -586,14 +591,16 @@ pub module apu (
             if (apu_tick_div == 2) {
                 apu_tick_div  = 0;
                 apu_half_tick = !apu_half_tick;
-                if (!frame_counter_write) {
-                    if (frame_counter_last) {
-                        frame_counter = 0;
+                if (apu_half_tick) {
+                    if (!frame_counter_write) {
+                        if (frame_counter_last) {
+                            frame_counter = 0;
+                        } else {
+                            frame_counter = frame_counter + 1;
+                        }
                     } else {
-                        frame_counter = frame_counter + 1;
+                        frame_counter = 0;
                     }
-                } else {
-                    frame_counter = 0;
                 }
 
                 if (apu_half_tick) {

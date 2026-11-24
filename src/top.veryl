@@ -99,6 +99,10 @@ pub module top #(
     var apu_stall          : logic           ;
     var ppu_frame_wait     : logic           ;
     var audio_sample_raw   : logic<8>        ;
+    // 音声FIFOはGowin EDAにBRAMとして推論させる。
+    // RAM読み出し先audio_play_sampleをif_resetでも代入すると推論形から外れ、
+    // Gowinの合成器がSegmentation faultで停止するため、初期値はinitialで与える。
+    #[allow(initial_assign)]
     var audio_play_sample  : logic<8>        ;
     var audio_buffer       : logic<8>  [1024];
     var audio_wr_ptr       : logic<10>       ;
@@ -119,6 +123,10 @@ pub module top #(
     assign controller2_btns  = 8'h00;
     assign audio_write_pulse = !frame_sync && !apu_stall && audio_write_acc + {7'b0000000, AUDIO_SAMPLES_PER_FRAME}
         >= AUDIO_FRAME_CYCLES;
+
+    initial {
+        audio_play_sample = 8'h80;
+    }
 
     inst ppubus : bus_if::<8, 14>;
     inst vrambus: bus_if::<8, 11>;
@@ -188,7 +196,6 @@ pub module top #(
 
     always_ff {
         if_reset {
-            audio_play_sample   = 8'h80;
             audio_wr_ptr        = 0;
             audio_rd_ptr        = 0;
             audio_count         = 0;
