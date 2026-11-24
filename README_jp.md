@@ -42,6 +42,8 @@ tarunes/
 ├── target/             # Veryl が生成する RTL (SystemVerilog)
 ├── tarunes_TangNano20k/
 │                       # Tang Nano 20K用ラッパー、制約、Tclビルド
+├── tarunes_TangPrimer20k/
+│                       # Tang Primer 20K Dock用ラッパー、制約、Tclビルド
 └── obj_dir/            # Verilator が生成するオブジェクトディレクトリ
 ```
 
@@ -128,6 +130,21 @@ Veryl製TMDSエンコーダーとGowinの `CLKDIV`、`OSER10`、`TLVDS_OBUF` を
 Tang Nano 20K版の音声は、APU音声バッファの合成中にGowin EDAのRAM推論処理が
 クラッシュするため、現在は無効です。ピン、クロック、その他の詳細は
 [`tarunes_TangNano20k/README.md`](tarunes_TangNano20k/README.md) を参照してください。
+
+### Tang Primer 20K Dock
+
+Tang Primer 20K版も同じVeryl製TMDSエンコーダーを使用し、デバイスとピン制約を
+Dock向けに切り替えます。
+
+```bash
+make tangprimer20k ROM=sample
+```
+
+bitstreamは
+`tarunes_TangPrimer20k/impl/pnr/tarunes_tangprimer20k.fs` に生成されます。
+リセット、クロック、Dock固有の詳細は
+[`tarunes_TangPrimer20k/README.md`](tarunes_TangPrimer20k/README.md) を参照してください。
+音声はTang Nano 20K版と同じGowin EDAのRAM推論問題により現在無効です。
 
 ## シミュレーション実行
 
