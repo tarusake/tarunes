@@ -124,8 +124,7 @@ The bitstream is generated at
 uses a Veryl TMDS encoder with Gowin `CLKDIV`, `OSER10`, and `TLVDS_OBUF`
 primitives, so the encrypted Gowin DVI TX IP is not required.
 
-Audio is currently disabled on Tang Nano 20K because the Gowin EDA RAM
-inference pass crashes while synthesizing the APU audio buffer. See
+APU audio is output through the board I2S pins. See
 [`tarunes_TangNano20k/README.md`](tarunes_TangNano20k/README.md) for board pins,
 clocking, and other details.
 
@@ -141,8 +140,7 @@ make tangprimer20k ROM=sample
 The bitstream is generated at
 `tarunes_TangPrimer20k/impl/pnr/tarunes_tangprimer20k.fs`. See
 [`tarunes_TangPrimer20k/README.md`](tarunes_TangPrimer20k/README.md) for reset,
-clock, and Dock details. Audio is currently disabled for the same Gowin EDA RAM
-inference issue as the Tang Nano 20K build.
+clock, audio, and Dock details.
 
 ## Simulation
 

@@ -127,8 +127,7 @@ bitstreamは
 Veryl製TMDSエンコーダーとGowinの `CLKDIV`、`OSER10`、`TLVDS_OBUF` を
 使用するため、暗号化されたGowin DVI TX IPは不要です。
 
-Tang Nano 20K版の音声は、APU音声バッファの合成中にGowin EDAのRAM推論処理が
-クラッシュするため、現在は無効です。ピン、クロック、その他の詳細は
+APU音声はボードのI2S端子へ出力します。ピン、クロック、その他の詳細は
 [`tarunes_TangNano20k/README.md`](tarunes_TangNano20k/README.md) を参照してください。
 
 ### Tang Primer 20K Dock
@@ -144,7 +143,7 @@ bitstreamは
 `tarunes_TangPrimer20k/impl/pnr/tarunes_tangprimer20k.fs` に生成されます。
 リセット、クロック、Dock固有の詳細は
 [`tarunes_TangPrimer20k/README.md`](tarunes_TangPrimer20k/README.md) を参照してください。
-音声はTang Nano 20K版と同じGowin EDAのRAM推論問題により現在無効です。
+APU音声はDockのI2S端子へ出力します。
 
 ## シミュレーション実行
 

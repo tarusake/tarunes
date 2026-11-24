@@ -27,5 +27,4 @@ DockのS0（FPGA T10）はactive-lowリセットです。T10はSSPI兼用ピン�
 ピン情報は[Sipeed公式TangPrimer-20K-example](https://github.com/sipeed/TangPrimer-20K-example)
 と、以前のGowin配置配線レポートを照合しています。
 
-音声はGowin EDAのRAM推論クラッシュを回避するため現在無効です。I2Sとアンプ有効
-出力はLowに固定しています。
+APU音声はDockのI2S端子へ出力します。アンプは同期リセット解除後に有効になります。

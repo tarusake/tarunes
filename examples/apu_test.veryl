@@ -78,6 +78,22 @@ module test_apu_registers_and_status {
         $assert(cpubus.rdata[0]);
         bus_stall = 0;
 
+        // The frame sequencer advances in CPU/2 units. The first envelope
+        // quarter tick must therefore occur after about 22,000 input clocks,
+        // not after about 11,000 clocks.
+        write_register(5'h00, 8'b11100000);
+        write_register(5'h03, 8'h08);
+        clk.next(4);
+        $assert(dut.pulse1_env_start);
+        clk.next(12000);
+        $assert(dut.pulse1_env_start);
+        clk.next(11000);
+        $assert(!dut.pulse1_env_start);
+        $assert(dut.pulse1_env_decay == 4'hF);
+        clk.next(22300);
+        $display("APU envelope timing: decay=%d frame_counter=%d", dut.pulse1_env_decay, dut.frame_counter);
+        $assert(dut.pulse1_env_decay == 4'hE);
+
         // Disabling a channel immediately clears its length counter/status bit.
         write_register(5'h15, 8'h00);
         clk.next();

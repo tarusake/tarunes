@@ -87,7 +87,7 @@ module tang_nano_20k_top #(
     tarunes_top #(
         .PROM_PATH(PROM_PATH),
         .CROM_PATH(CROM_PATH),
-        .ENABLE_APU(1'b0),
+        .ENABLE_APU(1'b1),
         .USE_CARTRIDGE(1'b0)
     ) core (
         .clk(clk27),
@@ -108,9 +108,9 @@ module tang_nano_20k_top #(
         .hdmi_video_x(),
         .hdmi_video_y(hdmi_video_y),
         .audio_sample(),
-        .i2s_bclk(),
-        .i2s_lrck(),
-        .i2s_dout(),
+        .i2s_bclk(O_i2s_bclk),
+        .i2s_lrck(O_i2s_lrck),
+        .i2s_dout(O_i2s_din),
         .debug_cpu_pc(debug_cpu_pc),
         .logic_analizer(logic_analizer),
         .cart_cpu_addr(),
@@ -178,10 +178,7 @@ module tang_nano_20k_top #(
 
     wire cpu_activity_blink = cpu_activity_counter[20];
 
-    assign O_i2s_bclk = 1'b0;
-    assign O_i2s_lrck = 1'b0;
-    assign O_i2s_din = 1'b0;
-    assign O_pa_sd_en = 1'b0;
+    assign O_pa_sd_en = rst_n;
     assign O_led = {cpu_activity_blink, hdmi_frame_counter[5], debug_cpu_pc[15:12]};
 
 endmodule

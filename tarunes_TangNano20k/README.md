@@ -54,9 +54,8 @@ resets the core. S2 is reserved for a future controller input. `O_led[5]` and
 `O_led[4]` show CPU and video-frame activity, and `O_led[3:0]` shows
 `debug_cpu_pc[15:12]`.
 
-Audio is currently disabled because the Gowin EDA RAM inference pass crashes
-while synthesizing the APU audio buffer. The I2S and amplifier-enable outputs
-are therefore held low.
+Audio is output through the board I2S pins. The amplifier is enabled after the
+synchronized reset is released.
 
 The batch script adds these files automatically:
 

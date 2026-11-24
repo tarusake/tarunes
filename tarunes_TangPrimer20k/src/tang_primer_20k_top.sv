@@ -42,7 +42,7 @@ module tang_primer_20k_top #(
 
     tarunes_top #(
         .PROM_PATH(PROM_PATH), .CROM_PATH(CROM_PATH),
-        .ENABLE_APU(1'b0), .USE_CARTRIDGE(1'b0)
+        .ENABLE_APU(1'b1), .USE_CARTRIDGE(1'b0)
     ) core (
         .clk(clk27), .rst(rst_n), .frame_sync(hdmi_frame_start),
         .sfc_data(sfc_data), .sfc_latch(sfc_latch), .sfc_clk(sfc_clk),
@@ -50,7 +50,7 @@ module tang_primer_20k_top #(
         .hdmi_r(hdmi_r), .hdmi_g(hdmi_g), .hdmi_b(hdmi_b),
         .hdmi_hsync(hdmi_hsync), .hdmi_vsync(hdmi_vsync), .hdmi_de(hdmi_de),
         .hdmi_video_x(), .hdmi_video_y(hdmi_video_y),
-        .audio_sample(), .i2s_bclk(), .i2s_lrck(), .i2s_dout(),
+        .audio_sample(), .i2s_bclk(O_i2s_bclk), .i2s_lrck(O_i2s_lrck), .i2s_dout(O_i2s_din),
         .debug_cpu_pc(debug_cpu_pc), .logic_analizer(),
         .cart_cpu_addr(), .cart_cpu_data_i(8'h00), .cart_cpu_data_o(),
         .cart_cpu_data_oe(), .cart_cpu_rnw(), .cart_cpu_romsel_n(), .cart_cpu_m2(),
@@ -83,10 +83,7 @@ module tang_primer_20k_top #(
         .tmds_data_p(O_tmds_data_p), .tmds_data_n(O_tmds_data_n)
     );
 
-    assign O_i2s_bclk = 1'b0;
-    assign O_i2s_lrck = 1'b0;
-    assign O_i2s_din = 1'b0;
-    assign O_pa_en = 1'b0;
+    assign O_pa_en = rst_n;
     assign O_led = {cpu_activity_counter[20], hdmi_frame_counter[5], debug_cpu_pc[15:12]};
     wire unused = &I_key_n;
 endmodule
