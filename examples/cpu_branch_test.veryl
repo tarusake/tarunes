@@ -7,6 +7,8 @@ module test_cpu_branch_conditions {
     var halt          : logic    ;
     var debug_pc      : logic<16>;
     var logic_analizer: logic<16>;
+    var taken_seen    : logic<8> ;
+    var not_taken_seen: logic<8> ;
     inst cpubus: bus_if::<8, 16>;
     inst dut: cpu (
         clk           : clk           ,
@@ -111,11 +113,31 @@ module test_cpu_branch_conditions {
     }
     always_ff (clk, rst) {
         if_reset {
-            cpubus.rdata = 0;
+            cpubus.rdata   = 0;
+            taken_seen     = 0;
+            not_taken_seen = 0;
         } else {
             cpubus.rdata = rom(cpubus.addr);
             if (logic_analizer[15]) {
-                $display("Branch instruction: pc=%h opcode=%h", debug_pc, logic_analizer[7:0]);
+                case (debug_pc) {
+                    16'h8003: taken_seen[0]     = 1; // BCC taken
+                    16'h800F: not_taken_seen[0] = 1; // BCC not taken
+                    16'h8007: not_taken_seen[1] = 1; // BCS not taken
+                    16'h800B: taken_seen[1]     = 1; // BCS taken
+                    16'h801D: taken_seen[2]     = 1; // BNE taken
+                    16'h8018: not_taken_seen[2] = 1; // BNE not taken
+                    16'h8014: taken_seen[3]     = 1; // BEQ taken
+                    16'h8021: not_taken_seen[3] = 1; // BEQ not taken
+                    16'h802F: taken_seen[4]     = 1; // BPL taken
+                    16'h802A: not_taken_seen[4] = 1; // BPL not taken
+                    16'h8026: taken_seen[5]     = 1; // BMI taken
+                    16'h8033: not_taken_seen[5] = 1; // BMI not taken
+                    16'h8037: taken_seen[6]     = 1; // BVC taken
+                    16'h8047: not_taken_seen[6] = 1; // BVC not taken
+                    16'h8043: taken_seen[7]     = 1; // BVS taken
+                    16'h803B: not_taken_seen[7] = 1; // BVS not taken
+                    default : {}
+                }
             }
         }
     }
@@ -125,10 +147,16 @@ module test_cpu_branch_conditions {
         halt  = 0;
         rst.assert();
         clk.next(240);
-        $display("Branch summary: pc=%h y=%h x=%h", debug_pc, dut.reg_y, dut.reg_x);
+        $assert(taken_seen == 8'hFF);
+        $assert(not_taken_seen == 8'hFF);
+        $display("BCC/BCS: taken and not-taken OK");
+        $display("BNE/BEQ: taken and not-taken OK");
+        $display("BPL/BMI: taken and not-taken OK");
+        $display("BVC/BVS: taken and not-taken OK");
         $assert(dut.reg_y == 8'd14);
         $assert(dut.reg_x == 0);
         $assert(debug_pc == 16'h804F);
+        $display("Relative branch: forward/backward PC=%h Y=%h X=%h OK", debug_pc, dut.reg_y, dut.reg_x);
         $finish();
     }
 }

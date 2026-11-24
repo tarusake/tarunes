@@ -1,5 +1,6 @@
 /// パラメータ化された同期読み出し・書き込みメモリ。
-/// `PATH`が指定されている場合は`$readmemh`で初期化する。`stall`中は読み書きを止める。
+/// `PATH`が指定されている場合は`$readmemh`で初期化する。
+/// `ren=1`で読み出し、`wen=1`で書き込みを行い、`stall`中はアクセスを止める。
 pub module memory::<DATA_WIDTH: u32, ADDR_WIDTH: u32> #(
     param PATH: string = "",
 ) (
@@ -21,10 +22,43 @@ pub module memory::<DATA_WIDTH: u32, ADDR_WIDTH: u32> #(
         if_reset {
             membus.rdata = 0;
         } else if !stall {
-            membus.rdata = mem[membus.addr];
+            if membus.ren {
+                membus.rdata = mem[membus.addr];
+            }
             if membus.wen {
                 mem[membus.addr] = membus.wdata;
             }
+        }
+    }
+}
+
+/// 同期読み出し専用メモリ。
+///
+/// カセットバスでは`$8000-$FFFF`への書き込みをマッパーへ転送する必要がある。
+/// 内蔵ROM使用時に同じ書き込みで初期化済みメモリを書き換えないため、ROMは
+/// 書き込み可能な`memory`と分離する。
+pub module read_only_memory::<DATA_WIDTH: u32, ADDR_WIDTH: u32> #(
+    param PATH: string = "",
+) (
+    clk   : input   clock                                  ,
+    rst   : input   reset                                  ,
+    stall : input   logic                                  ,
+    membus: modport bus_if::<DATA_WIDTH, ADDR_WIDTH>::slave,
+) {
+    #[allow(initial_assign)]
+    var mem: logic<DATA_WIDTH> [2 ** ADDR_WIDTH];
+
+    initial {
+        if PATH != "" {
+            $readmemh(PATH, mem);
+        }
+    }
+
+    always_ff {
+        if_reset {
+            membus.rdata = 0;
+        } else if !stall && membus.ren {
+            membus.rdata = mem[membus.addr];
         }
     }
 }

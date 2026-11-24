@@ -9,10 +9,8 @@
 /// 0を書き込んだ後は、各ポートの読み出しで下位ビットから順に返し、
 /// 読出位置を進める。8ビットを読み終えた後は1を返す。
 ///
-/// 読出位置が進むのは`sel`の立ち上がりで検出した読み出し時だけ。
-/// `stall`中は読み出しデータと内部状態を保持する。現在のバスには
-/// 読み出し許可信号がないため、`sel`を維持した連続読み出しでは
-/// 毎回シフトされるわけではない。
+/// 読出位置が進むのは`ren=1`の読み出しサイクルだけ。
+/// `stall`中は読み出しデータと内部状態を保持する。
 pub module controller (
     clk             : input   clock                   ,
     rst             : input   reset                   ,
@@ -27,12 +25,9 @@ pub module controller (
     var shift2    : logic<8>;
     var count1    : logic<4>;
     var count2    : logic<4>;
-    var sel_d     : logic   ;
     var read_pulse: logic   ;
 
-    // TODO: bus_ifにread enableを追加したら、sel立ち上がりではなく
-    // CPUの実readサイクル1回だけでシフトするように置き換える。
-    assign read_pulse = sel && !sel_d && !cpubus.wen;
+    assign read_pulse = sel && cpubus.ren;
 
     always_ff {
         if_reset {
@@ -42,10 +37,7 @@ pub module controller (
             shift2       = 0;
             count1       = 0;
             count2       = 0;
-            sel_d        = 0;
         } else if !stall {
-            sel_d = sel;
-
             if (strobe) {
                 shift1 = controller1_btns;
                 shift2 = controller2_btns;
@@ -61,7 +53,7 @@ pub module controller (
                     count1 = 0;
                     count2 = 0;
                 }
-            } else if (sel && !cpubus.wen) {
+            } else if (read_pulse) {
                 case (cpubus.addr) {
                     0: {
                         let read1_bit   : logic    = if count1 <: 8 ? shift1[0] : 1'b1;

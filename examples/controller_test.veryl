@@ -40,6 +40,7 @@ module test_controller_serial_read {
         controller1_btns = 8'b10100101;
         controller2_btns = 0;
         cpubus.addr      = 0;
+        cpubus.ren       = 1;
         cpubus.wen       = 0;
         cpubus.wdata     = 0;
 

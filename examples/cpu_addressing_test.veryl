@@ -118,7 +118,6 @@ module test_cpu_addressing_modes {
                     }
                     default: {}
                 }
-                $display("Addressing result: slot=%h data=%h", cpubus.addr, cpubus.wdata);
                 checks = checks + 1;
             }
         }
@@ -129,9 +128,16 @@ module test_cpu_addressing_modes {
         halt  = 0;
         rst.assert();
         clk.next(180);
-        $display("Addressing summary: pc=%h checks=%d", debug_pc, checks);
         $assert(checks == 8);
         $assert(debug_pc == 16'h8027);
+        $display("zero page: LDA $20 = 11 OK");
+        $display("zero page,X: LDA $20,X = 22 OK");
+        $display("absolute: LDA $0090 = 33 OK");
+        $display("absolute,X: LDA $0090,X = 44 OK");
+        $display("absolute,Y: LDA $0090,Y = 55 OK");
+        $display("indexed indirect: LDA ($50,X) = 66 OK");
+        $display("indirect indexed: LDA ($60),Y = 77 OK");
+        $display("zero page,Y: LDX $20,Y = 88 OK");
         $finish();
     }
 }

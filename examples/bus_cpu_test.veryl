@@ -3,11 +3,12 @@ module test_bus_cpu_decode {
     inst clk: $tb::clock_gen;
     inst rst: $tb::reset_gen ( clk );
 
-    var stall    : logic   ;
-    var dma_busy : logic   ;
-    var dma_start: logic   ;
-    var dma_page : logic<8>;
-    var cpu_halt : logic   ;
+    var stall        : logic   ;
+    var dma_busy     : logic   ;
+    var dma_start    : logic   ;
+    var dma_page     : logic<8>;
+    var cpu_halt     : logic   ;
+    var prom_selected: logic   ;
 
     inst cpubus     : bus_if::<8, 16>;
     inst cpu_ppubus : bus_if::<8, 3>;
@@ -19,36 +20,40 @@ module test_bus_cpu_decode {
     inst prombus    : bus_if::<8, 15>;
 
     inst dut: bus_cpu (
-        clk        : clk        ,
-        rst        : rst        ,
-        stall      : stall      ,
-        dma_busy   : dma_busy   ,
-        dma_start  : dma_start  ,
-        dma_page   : dma_page   ,
-        cpu_halt   : cpu_halt   ,
-        cpubus     : cpubus     ,
-        cpu_ppubus : cpu_ppubus ,
-        dma_ppubus : dma_ppubus ,
-        apubus     : apubus     ,
-        ctrlbus    : ctrlbus    ,
-        dma_wrambus: dma_wrambus,
-        wrambus    : wrambus    ,
-        prombus    : prombus    ,
+        clk          : clk          ,
+        rst          : rst          ,
+        stall        : stall        ,
+        dma_busy     : dma_busy     ,
+        dma_start    : dma_start    ,
+        dma_page     : dma_page     ,
+        cpu_halt     : cpu_halt     ,
+        prom_selected: prom_selected,
+        cpubus       : cpubus       ,
+        cpu_ppubus   : cpu_ppubus   ,
+        dma_ppubus   : dma_ppubus   ,
+        apubus       : apubus       ,
+        ctrlbus      : ctrlbus      ,
+        dma_wrambus  : dma_wrambus  ,
+        wrambus      : wrambus      ,
+        prombus      : prombus      ,
     );
 
     initial {
         stall             = 0;
         dma_busy          = 0;
         cpubus.addr       = 0;
+        cpubus.ren        = 0;
         cpubus.wen        = 0;
         cpubus.wdata      = 0;
         cpu_ppubus.rdata  = 8'h22;
         dma_ppubus.addr   = 3'h4;
+        dma_ppubus.ren    = 0;
         dma_ppubus.wen    = 1;
         dma_ppubus.wdata  = 8'hDD;
         apubus.rdata      = 8'h44;
         ctrlbus.rdata     = 8'h66;
         dma_wrambus.addr  = 11'h321;
+        dma_wrambus.ren   = 1;
         dma_wrambus.wen   = 0;
         dma_wrambus.wdata = 8'hCC;
         wrambus.rdata     = 8'h88;
@@ -61,12 +66,14 @@ module test_bus_cpu_decode {
         cpubus.wdata = 8'h5A;
         $display("CPU bus WRAM: addr=%h mapped=%h data=%h", cpubus.addr, wrambus.addr, wrambus.wdata);
         $assert(wrambus.addr == 11'h7FF);
+        $assert(!wrambus.ren);
         $assert(wrambus.wen);
         $assert(wrambus.wdata == 8'h5A);
 
         cpubus.addr = 16'h2007;
         $display("CPU bus PPU: addr=%h mapped=%h", cpubus.addr, cpu_ppubus.addr);
         $assert(cpu_ppubus.addr == 3'h7);
+        $assert(!cpu_ppubus.ren);
         $assert(cpu_ppubus.wen);
 
         cpubus.addr = 16'h4015;
@@ -79,6 +86,7 @@ module test_bus_cpu_decode {
 
         cpubus.addr = 16'h8001;
         cpubus.wen  = 0;
+        cpubus.ren  = 1;
         clk.next();
         $display("CPU bus PROM read: mapped=%h data=%h", prombus.addr, cpubus.rdata);
         $assert(prombus.addr == 15'h0001);
@@ -102,6 +110,12 @@ module test_bus_cpu_decode {
         $assert(cpu_ppubus.addr == 3'h4);
         $assert(cpu_ppubus.wen);
         $assert(cpu_ppubus.wdata == 8'hDD);
+
+        // ren=0ならアドレスが一致しても接続先へ読み出しを出さない。
+        dma_busy    = 0;
+        cpubus.addr = 16'h0000;
+        cpubus.ren  = 0;
+        $assert(!wrambus.ren);
 
         $finish();
     }

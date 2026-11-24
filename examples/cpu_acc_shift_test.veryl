@@ -107,7 +107,6 @@ module test_cpu_accumulator_shift_rotate {
                     }
                     default: {}
                 }
-                $display("Accumulator shift write: addr=%h data=%h", cpubus.addr, cpubus.wdata);
             }
         }
     }
@@ -117,10 +116,15 @@ module test_cpu_accumulator_shift_rotate {
         halt  = 0;
         rst.assert();
         clk.next(180);
-        $display("Accumulator shift summary: pc=%h results=%d flags=%d", debug_pc, result_count, flag_count);
         $assert(result_count == 6);
         $assert(flag_count == 6);
         $assert(debug_pc == 16'h8028);
+        $display("ASL A: $80 -> $00, C=1 Z=1 OK");
+        $display("LSR A: $01 -> $00, C=1 Z=1 OK");
+        $display("ROL A: $80,C=0 -> $00, C=1 Z=1 OK");
+        $display("ROL A: $00,C=1 -> $01, C=0 OK");
+        $display("ROR A: $01,C=0 -> $00, C=1 Z=1 OK");
+        $display("ROR A: $00,C=1 -> $80, C=0 N=1 OK");
         $finish();
     }
 }

@@ -33,9 +33,11 @@ pub module oam_dma (
     assign busy             = state != dma_state_t::IDLE;
     assign dma_addr         = {page_latch, index};
     assign wrambus.addr     = dma_addr[10:0];
+    assign wrambus.ren      = state == dma_state_t::READ;
     assign wrambus.wen      = 0;
     assign wrambus.wdata    = 0;
     assign ppu_regbus.addr  = 3'd4;
+    assign ppu_regbus.ren   = 0;
     assign ppu_regbus.wen   = state == dma_state_t::WRITE;
     assign ppu_regbus.wdata = wrambus.rdata;
 

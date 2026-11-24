@@ -87,7 +87,6 @@ module test_cpu_store_addressing {
                         $assert(0);
                     }
                 }
-                $display("Store write: addr=%h data=%h", cpubus.addr, cpubus.wdata);
             }
         }
     }
@@ -97,9 +96,12 @@ module test_cpu_store_addressing {
         halt  = 0;
         rst.assert();
         clk.next(180);
-        $display("Store summary: pc=%h checks=%d", debug_pc, checks);
         $assert(checks == 9);
         $assert(debug_pc == 16'h801C);
+        $display("STA: zero page,X / absolute,X / absolute,Y OK");
+        $display("STA: indexed indirect / indirect indexed OK");
+        $display("STX: zero page,Y / absolute OK");
+        $display("STY: zero page,X / absolute OK");
         $finish();
     }
 }

@@ -264,12 +264,6 @@ package cpu_pkg {
         return invalid_decode_entry(raw_opcode);
     }
 
-    function is_store_inst (
-        inst_kind: input inst_t,
-    ) -> logic {
-        return inst_kind == inst_t::STA || inst_kind == inst_t::STX || inst_kind == inst_t::STY;
-    }
-
     function high_byte (
         value: input logic<16>,
     ) -> logic<8> {

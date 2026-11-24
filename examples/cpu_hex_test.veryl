@@ -1,0 +1,54 @@
+/// Veryl 0.22.xの階層`$readmemh`を使ったCPUスモークテスト。
+///
+/// プログラムとリセットベクタはHEXファイル側にまとめ、テストベンチから
+/// 子インスタンス`ram`のメモリへ直接ロードする。
+#[test(test_cpu_program_from_hex)]
+module test_cpu_program_from_hex {
+    inst clk: $tb::clock_gen;
+    inst rst: $tb::reset_gen ( clk );
+
+    var stall         : logic    ;
+    var nmi           : logic    ;
+    var halt          : logic    ;
+    var debug_pc      : logic<16>;
+    var logic_analizer: logic<16>;
+
+    inst cpubus: bus_if::<8, 16>;
+
+    inst dut: cpu (
+        clk           : clk           ,
+        rst           : rst           ,
+        stall         : stall         ,
+        nmi           : nmi           ,
+        halt          : halt          ,
+        debug_pc      : debug_pc      ,
+        logic_analizer: logic_analizer,
+        cpubus        : cpubus        ,
+    );
+
+    inst ram: memory::<8, 16> (
+        clk   : clk   ,
+        rst   : rst   ,
+        stall : stall ,
+        membus: cpubus,
+    );
+
+    initial {
+        stall = 0;
+        nmi   = 0;
+        halt  = 0;
+
+        // 0.22.xでは、テストベンチから子インスタンス内のメモリを
+        // $readmemhのロード先として指定できる。
+        $readmemh("examples/data/cpu_smoke.mem", ram.mem);
+
+        rst.assert();
+        clk.next(80);
+
+        // LDA #$42; STA $10 が実行され、最後のJMPで停止していることを確認する。
+        $assert(ram.mem[16'h0010] == 8'h42);
+        $assert(debug_pc == 16'h8004);
+        $display("HEX program: [$10]=%h PC=%h OK", ram.mem[16'h0010], debug_pc);
+        $finish();
+    }
+}

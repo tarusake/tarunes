@@ -31,6 +31,7 @@ pub module top #(
     param CROM_PATH    : string = ""   ,
     param ENABLE_APU   : bbool  = false,
     param I2S_TEST_TONE: bbool  = false,
+    param USE_CARTRIDGE: bbool  = false,
 ) (
     clk                     : input  clock    ,
     rst                     : input  reset    ,
@@ -55,6 +56,19 @@ pub module top #(
     i2s_dout                : output logic    ,
     debug_cpu_pc            : output logic<16>,
     logic_analizer          : output logic<16>,
+    cart_cpu_addr           : output logic<15>,
+    cart_cpu_data_i         : input  logic<8> ,
+    cart_cpu_data_o         : output logic<8> ,
+    cart_cpu_data_oe        : output logic    ,
+    cart_cpu_rnw            : output logic    ,
+    cart_cpu_romsel_n       : output logic    ,
+    cart_cpu_m2             : output logic    ,
+    cart_ppu_addr           : output logic<14>,
+    cart_ppu_data_i         : input  logic<8> ,
+    cart_ppu_data_o         : output logic<8> ,
+    cart_ppu_data_oe        : output logic    ,
+    cart_ppu_rd_n           : output logic    ,
+    cart_ppu_wr_n           : output logic    ,
     debug_palette0          : output logic<8> ,
     debug_palette1          : output logic<8> ,
     debug_palette2          : output logic<8> ,
@@ -96,6 +110,8 @@ pub module top #(
     var i2s_sample_req     : logic           ;
     var controller1_btns   : logic<8>        ;
     var controller2_btns   : logic<8>        ;
+    var prom_selected      : logic           ;
+    var crom_selected      : logic           ;
 
     assign core_stall        = ppu_frame_wait;
     assign apu_stall         = audio_frame_samples == AUDIO_SAMPLES_PER_FRAME;
@@ -126,31 +142,23 @@ pub module top #(
         membus: wrambus   ,
     );
 
-    inst prom: memory::<8, 15> #(
-        PATH: PROM_PATH,
-    ) (
-        clk   : clk       ,
-        rst   : rst       ,
-        stall : core_stall,
-        membus: prombus   ,
-    );
-
     inst ubus_cpu: bus_cpu (
-        clk        : clk        ,
-        rst        : rst        ,
-        stall      : core_stall ,
-        dma_busy   : dma_busy   ,
-        dma_start  : dma_start  ,
-        dma_page   : dma_page   ,
-        cpu_halt   : cpu_halt   ,
-        cpubus     : cpubus     ,
-        cpu_ppubus : cpu_ppubus ,
-        dma_ppubus : dma_ppubus ,
-        apubus     : apubus     ,
-        ctrlbus    : ctrlbus    ,
-        dma_wrambus: dma_wrambus,
-        prombus    : prombus    ,
-        wrambus    : wrambus    ,
+        clk          : clk          ,
+        rst          : rst          ,
+        stall        : core_stall   ,
+        dma_busy     : dma_busy     ,
+        dma_start    : dma_start    ,
+        dma_page     : dma_page     ,
+        cpu_halt     : cpu_halt     ,
+        prom_selected: prom_selected,
+        cpubus       : cpubus       ,
+        cpu_ppubus   : cpu_ppubus   ,
+        dma_ppubus   : dma_ppubus   ,
+        apubus       : apubus       ,
+        ctrlbus      : ctrlbus      ,
+        dma_wrambus  : dma_wrambus  ,
+        prombus      : prombus      ,
+        wrambus      : wrambus      ,
     );
 
     inst oam_dma_inst: oam_dma (
@@ -293,12 +301,13 @@ pub module top #(
     );
 
     inst ubus_ppu: bus_ppu (
-        clk    : clk       ,
-        rst    : rst       ,
-        stall  : core_stall,
-        ppubus : ppubus    ,
-        crombus: crombus   ,
-        vrambus: vrambus   ,
+        clk          : clk          ,
+        rst          : rst          ,
+        stall        : core_stall   ,
+        crom_selected: crom_selected,
+        ppubus       : ppubus       ,
+        crombus      : crombus      ,
+        vrambus      : vrambus      ,
     );
 
     inst vram: memory::<8, 11> (
@@ -308,13 +317,59 @@ pub module top #(
         membus: vrambus   ,
     );
 
-    inst crom: memory::<8, 13> #(
-        PATH: CROM_PATH,
-    ) (
-        clk   : clk       ,
-        rst   : rst       ,
-        stall : core_stall,
-        membus: crombus   ,
-    );
+    if (USE_CARTRIDGE) :g_cartridge {
+        inst cartridge_inst: cartridge_bus (
+            clk         : clk              ,
+            rst         : rst              ,
+            stall       : core_stall       ,
+            cpu_selected: prom_selected    ,
+            cpu_bus     : prombus          ,
+            cpu_addr    : cart_cpu_addr    ,
+            cpu_data_i  : cart_cpu_data_i  ,
+            cpu_data_o  : cart_cpu_data_o  ,
+            cpu_data_oe : cart_cpu_data_oe ,
+            cpu_rnw     : cart_cpu_rnw     ,
+            cpu_romsel_n: cart_cpu_romsel_n,
+            cpu_m2      : cart_cpu_m2      ,
+            ppu_selected: crom_selected    ,
+            ppu_bus     : crombus          ,
+            ppu_addr    : cart_ppu_addr    ,
+            ppu_data_i  : cart_ppu_data_i  ,
+            ppu_data_o  : cart_ppu_data_o  ,
+            ppu_data_oe : cart_ppu_data_oe ,
+            ppu_rd_n    : cart_ppu_rd_n    ,
+            ppu_wr_n    : cart_ppu_wr_n    ,
+        );
+    } else :g_internal_rom {
+        inst prom: read_only_memory::<8, 15> #(
+            PATH: PROM_PATH,
+        ) (
+            clk   : clk       ,
+            rst   : rst       ,
+            stall : core_stall,
+            membus: prombus   ,
+        );
+
+        inst crom: read_only_memory::<8, 13> #(
+            PATH: CROM_PATH,
+        ) (
+            clk   : clk       ,
+            rst   : rst       ,
+            stall : core_stall,
+            membus: crombus   ,
+        );
+
+        assign cart_cpu_addr     = 0;
+        assign cart_cpu_data_o   = 0;
+        assign cart_cpu_data_oe  = 0;
+        assign cart_cpu_rnw      = 1;
+        assign cart_cpu_romsel_n = 1;
+        assign cart_cpu_m2       = 0;
+        assign cart_ppu_addr     = 0;
+        assign cart_ppu_data_o   = 0;
+        assign cart_ppu_data_oe  = 0;
+        assign cart_ppu_rd_n     = 1;
+        assign cart_ppu_wr_n     = 1;
+    }
 
 }

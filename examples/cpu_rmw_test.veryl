@@ -118,16 +118,160 @@ module test_cpu_read_modify_write {
         halt  = 0;
         rst.assert();
         clk.next(140);
-        $display("RMW summary: %h %h %h %h %h %h writes=%d p=%h", m20, m21, m22, m23, m24, m25, writes, dut.reg_p);
+
         $assert(m20 == 8'h80);
+        $display("INC zp: $7F -> %h OK", m20);
         $assert(m21 == 8'hFF);
+        $display("DEC zp: $00 -> %h OK", m21);
         $assert(m22 == 8'h02);
+        $display("ASL zp: $81 -> %h OK", m22);
         $assert(m23 == 8'h01);
+        $display("LSR zp: $03 -> %h OK", m23);
         $assert(m24 == 8'h00);
+        $display("ROL zp: $80,C=0 -> %h OK", m24);
         $assert(m25 == 8'h81);
+        $display("ROR zp: $02,C=1 -> %h OK", m25);
+
+        // 各RMW命令は、変更前と変更後の2回ずつ書き込む。
         $assert(writes == 12);
+        $display("RMW bus writes: %d OK", writes);
         $assert(!dut.reg_p[0] && !dut.reg_p[1] && dut.reg_p[7]);
+        $display("RMW final flags: C=%b Z=%b N=%b OK", dut.reg_p[0], dut.reg_p[1], dut.reg_p[7]);
         $assert(debug_pc == 16'h800E);
+        $finish();
+    }
+}
+
+/// RMW命令の全24オペコードをCPUで実行し、各モードの書き戻し値を確認する。
+/// Xの初期値は0なので、ZPX/ABSXも同じ検査用アドレス`$0020`を指す。
+#[test(test_all_rmw_opcode_results)]
+module test_all_rmw_opcode_results {
+    import cpu_pkg::*;
+
+    inst clk: $tb::clock_gen;
+    inst rst: $tb::reset_gen ( clk );
+    var stall         : logic    ;
+    var nmi           : logic    ;
+    var halt          : logic    ;
+    var debug_pc      : logic<16>;
+    var logic_analizer: logic<16>;
+    var test_opcode   : logic<8> ;
+    var initial_value : logic<8> ;
+    var load_memory   : logic    ;
+    var memory_20     : logic<8> ;
+    var write_count   : logic<2> ;
+    var checks        : logic<5> ;
+    inst cpubus: bus_if::<8, 16>;
+    inst dut: cpu (
+        clk           : clk           ,
+        rst           : rst           ,
+        stall         : stall         ,
+        nmi           : nmi           ,
+        halt          : halt          ,
+        debug_pc      : debug_pc      ,
+        logic_analizer: logic_analizer,
+        cpubus        : cpubus        ,
+    );
+
+    function source_value (
+        instruction: input inst_t,
+    ) -> logic<8> {
+        case (instruction) {
+            inst_t::INC: return 8'h7F;
+            inst_t::DEC: return 8'h00;
+            inst_t::ASL: return 8'h81;
+            inst_t::LSR: return 8'h03;
+            inst_t::ROL: return 8'h80;
+            inst_t::ROR: return 8'h02;
+            default    : return 0;
+        }
+    }
+
+    function expected_value (
+        instruction: input inst_t,
+    ) -> logic<8> {
+        case (instruction) {
+            inst_t::INC: return 8'h80;
+            inst_t::DEC: return 8'hFF;
+            inst_t::ASL: return 8'h02;
+            inst_t::LSR: return 8'h01;
+            inst_t::ROL: return 8'h00; // リセット直後はC=0
+            inst_t::ROR: return 8'h01; // リセット直後はC=0
+            default    : return 0;
+        }
+    }
+
+    function is_rmw (
+        instruction: input inst_t,
+    ) -> logic {
+        return instruction == inst_t::INC || instruction == inst_t::DEC || instruction == inst_t::ASL || instruction
+            == inst_t::LSR || instruction == inst_t::ROL || instruction == inst_t::ROR;
+    }
+
+    function memory (
+        addr: input logic<16>,
+    ) -> logic<8> {
+        case (addr) {
+            16'hFFFC: return 8'h00;
+            16'hFFFD: return 8'h80;
+            16'h8000: return test_opcode;
+            16'h8001: return 8'h20;
+            16'h8002: return 8'h00;
+            16'h8003: return 8'h4C;
+            16'h8004: return 8'h03;
+            16'h8005: return 8'h80;
+            default : return 0;
+        }
+    }
+
+    always_ff (clk, rst) {
+        if_reset {
+            cpubus.rdata = 0;
+            memory_20    = 0;
+            write_count  = 0;
+        } else {
+            if cpubus.addr == 16'h0020 {
+                cpubus.rdata = memory_20;
+            } else {
+                cpubus.rdata = memory(cpubus.addr);
+            }
+            if load_memory {
+                memory_20 = initial_value;
+            } else if (cpubus.wen && cpubus.addr == 16'h0020) {
+                memory_20   = cpubus.wdata;
+                write_count = write_count + 1;
+            }
+        }
+    }
+
+    initial {
+        stall         = 0;
+        nmi           = 0;
+        halt          = 0;
+        test_opcode   = 0;
+        initial_value = 0;
+        load_memory   = 0;
+        checks        = 0;
+
+        for i in 0..$size(DECODE_TABLE) {
+            if is_rmw(DECODE_TABLE[i].inst_kind) && DECODE_TABLE[i].mode != addr_mode_t::IMPLIED {
+                test_opcode   = DECODE_TABLE[i].opcode;
+                initial_value = source_value(DECODE_TABLE[i].inst_kind);
+                rst.assert();
+                load_memory = 1;
+                clk.next(1);
+                load_memory = 0;
+                clk.next(24);
+
+                $assert(memory_20 == expected_value(DECODE_TABLE[i].inst_kind));
+                $assert(write_count == 2);
+                checks = checks + 1;
+                $display("opcode %h RMW result=%h writes=%d OK", test_opcode, memory_20, write_count);
+            }
+        }
+
+        $assert(checks == 24);
+        $display("RMW execution results: all %d opcodes passed", checks);
         $finish();
     }
 }
