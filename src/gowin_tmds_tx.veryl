@@ -1,0 +1,63 @@
+/// 8ビット映像データをDVI互換の10ビットTMDSデータへ変換する。
+pub module tmds_encoder (
+    pixel_clk  : input  clock    ,
+    rst        : input  reset    ,
+    video_data : input  logic<8> ,
+    data_enable: input  logic    ,
+    control    : input  logic<2> ,
+    tmds_data  : output logic<10>,
+) {
+    type signed6_t = signed logic<6>;
+    var disparity: signed6_t      ;
+    let q_m      : logic       <9> = transition_minimized(video_data);
+    let balance  : signed6_t       = ({1'b0, count_ones8(q_m[7:0]), 1'b0} as signed6_t) - 6'sd8;
+
+    function count_ones8 (
+        value: input logic<8>,
+    ) -> logic<4> {
+        var count: logic<4>;
+        count = 0;
+        for i in 0..8 {
+            count = count + value[i];
+        }
+        return count;
+    }
+
+    /// 同じ値が連続しにくいXOR/XNOR列へ変換する。
+    function transition_minimized (
+        value: input logic<8>,
+    ) -> logic<9> {
+        var result   : logic<9>;
+        let xnor_mode: logic    = count_ones8(value) >: 4 || (count_ones8(value) == 4 && !value[0]);
+        result[0] = value[0];
+        for i in 1..8 {
+            result[i] = if xnor_mode ? !(result[i - 1] ^ value[i]) : result[i - 1] ^ value[i];
+        }
+        result[8] = !xnor_mode;
+        return result;
+    }
+
+    always_ff (pixel_clk, rst) {
+        if_reset {
+            tmds_data = 10'b1101010100;
+            disparity = 0;
+        } else if !data_enable {
+            disparity = 0;
+            case (control) {
+                2'b00: tmds_data = 10'b1101010100;
+                2'b01: tmds_data = 10'b0010101011;
+                2'b10: tmds_data = 10'b0101010100;
+                2'b11: tmds_data = 10'b1010101011;
+            }
+        } else if disparity == 0 || balance == 0 {
+            tmds_data = {!q_m[8], q_m[8], if q_m[8] ? q_m[7:0] : ~q_m[7:0]};
+            disparity = if q_m[8] ? disparity + balance : disparity - balance;
+        } else if (disparity >: 0 && balance >: 0) || (disparity <: 0 && balance <: 0) {
+            tmds_data = {1'b1, q_m[8], ~q_m[7:0]};
+            disparity = disparity + (if q_m[8] ? 6'sd2 : 6'sd0) - balance;
+        } else {
+            tmds_data = {1'b0, q_m[8], q_m[7:0]};
+            disparity = disparity - (if q_m[8] ? 6'sd0 : 6'sd2) + balance;
+        }
+    }
+}
