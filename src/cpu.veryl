@@ -84,6 +84,10 @@ pub module cpu (
         RTS_PULL_LO,
         RTS_WAIT_HI,
     }
+    struct alu_result_t {
+        value : logic<8>,
+        status: logic<8>,
+    }
     var state: cpu_state_t;
 
     function debug_cpu_state_str (
@@ -115,6 +119,144 @@ pub module cpu (
             cpu_state_t::RTS_PULL_LO       : return "RTS_LO";
             cpu_state_t::RTS_WAIT_HI       : return "RTS_WAIT";
             default                        : return "UNKNOWN";
+        }
+    }
+
+    /// 演算結果に合わせてZ（ゼロ）とN（負数）フラグを更新する。
+    function update_zn (
+        status: input logic<8>,
+        value : input logic<8>,
+    ) -> logic<8> {
+        var result               : logic<8>;
+        result                = status;
+        result[FLAG_ZERO]     = (value == 0);
+        result[FLAG_NEGATIVE] = value[7];
+        return result;
+    }
+
+    /// 算術・論理演算を実行し、結果値と更新後のフラグを返す。
+    function alu_execute (
+        instruction: input inst_t   ,
+        left       : input logic <8>,
+        right      : input logic <8>,
+        status     : input logic <8>,
+    ) -> alu_result_t {
+        var result       : alu_result_t   ;
+        var operand      : logic       <8>;
+        var sum          : logic       <9>;
+        result.value  = left;
+        result.status = status;
+        operand       = right;
+        sum           = 0;
+
+        case (instruction) {
+            inst_t::ORA                          : result.value = left | right;
+            inst_t::AND                          : result.value = left & right;
+            inst_t::EOR                          : result.value = left ^ right;
+            inst_t::INC, inst_t::INX, inst_t::INY: result.value = left + 1;
+            inst_t::DEC, inst_t::DEX, inst_t::DEY: result.value = left - 1;
+            inst_t::ASL                          : {
+                result.value              = left << 1;
+                result.status[FLAG_CARRY] = left[7];
+            }
+            inst_t::LSR: {
+                result.value              = left >> 1;
+                result.status[FLAG_CARRY] = left[0];
+            }
+            inst_t::ROL: {
+                result.value              = {left[6:0], status[FLAG_CARRY]};
+                result.status[FLAG_CARRY] = left[7];
+            }
+            inst_t::ROR: {
+                result.value              = {status[FLAG_CARRY], left[7:1]};
+                result.status[FLAG_CARRY] = left[0];
+            }
+            inst_t::ADC, inst_t::SBC: {
+                if (instruction == inst_t::SBC) {
+                    operand = ~right;
+                }
+                sum                          = {1'b0, left} + {1'b0, operand} + {8'h00, status[FLAG_CARRY]};
+                result.value                 = sum[7:0];
+                result.status[FLAG_CARRY]    = sum[8];
+                result.status[FLAG_OVERFLOW] = ((left ^ result.value) & (operand ^ result.value) & 8'h80) != 0;
+            }
+            inst_t::CMP, inst_t::CPX, inst_t::CPY: {
+                result.value              = left - right;
+                result.status[FLAG_CARRY] = (left >= right);
+            }
+            inst_t::BIT: {
+                result.status[FLAG_ZERO]     = ((left & right) == 0);
+                result.status[FLAG_OVERFLOW] = right[6];
+                result.status[FLAG_NEGATIVE] = right[7];
+            }
+        }
+
+        case (instruction) {
+            inst_t::BIT: {}
+            default: {
+                result.status[FLAG_ZERO]     = (result.value == 0);
+                result.status[FLAG_NEGATIVE] = result.value[7];
+            }
+        }
+        return result;
+    }
+
+    /// ゼロページ内で8ビット加算する。桁上がりは意図的に捨てる。
+    function zero_page_addr (
+        base : input logic<8>,
+        index: input logic<8>,
+    ) -> logic<16> {
+        return {8'h00, base + index};
+    }
+
+    /// アドレッシングモードに応じてX/Yインデックスを加える。
+    function indexed_addr (
+        mode: input addr_mode_t    ,
+        base: input logic      <16>,
+        x   : input logic      <8> ,
+        y   : input logic      <8> ,
+    ) -> logic<16> {
+        case (mode) {
+            addr_mode_t::ZPX, addr_mode_t::ABSX                   : return base + x;
+            addr_mode_t::ZPY, addr_mode_t::ABSY, addr_mode_t::INDY: return base + y;
+            default                                               : return base;
+        }
+    }
+
+    /// フラグ操作命令（SEI/CLIなど）をステータスレジスタへ反映する。
+    function status_after_flag_inst (
+        instruction: input inst_t   ,
+        status     : input logic <8>,
+    ) -> logic<8> {
+        var result: logic<8>;
+        result = status;
+        case (instruction) {
+            inst_t::SEI: result[FLAG_INTERRUPT] = 1;
+            inst_t::CLI: result[FLAG_INTERRUPT] = 0;
+            inst_t::SEC: result[FLAG_CARRY]     = 1;
+            inst_t::CLC: result[FLAG_CARRY]     = 0;
+            inst_t::SED: result[FLAG_DECIMAL]   = 1;
+            inst_t::CLD: result[FLAG_DECIMAL]   = 0;
+            inst_t::CLV: result[FLAG_OVERFLOW]  = 0;
+        }
+        return result;
+    }
+
+    /// 分岐命令が現在のフラグ条件を満たすか判定する。
+    function branch_taken (
+        instruction: input inst_t   ,
+        status     : input logic <8>,
+    ) -> logic {
+        case (instruction) {
+            inst_t::BCC: return !status[FLAG_CARRY];
+            inst_t::BCS: return status[FLAG_CARRY];
+            inst_t::BNE: return !status[FLAG_ZERO];
+            inst_t::BEQ: return status[FLAG_ZERO];
+            inst_t::BPL: return !status[FLAG_NEGATIVE];
+            inst_t::BMI: return status[FLAG_NEGATIVE];
+            inst_t::BVC: return !status[FLAG_OVERFLOW];
+            inst_t::BVS: return status[FLAG_OVERFLOW];
+            default    : return 0;
         }
     }
 
@@ -177,20 +319,21 @@ pub module cpu (
             }
             cpu_state_t::OP1: {
                 case (addr_mode) {
-                    addr_mode_t::ZP: {
-                        cpubus.addr = {8'h00, cpubus.rdata};
-                    }
-                    addr_mode_t::ZPX: {
-                        cpubus.addr = {8'h00, cpubus.rdata + reg_x};
-                    }
-                    addr_mode_t::ZPY: {
-                        cpubus.addr = {8'h00, cpubus.rdata + reg_y};
+                    addr_mode_t::ZP, addr_mode_t::ZPX, addr_mode_t::ZPY: {
+                        let index      : logic<8> = if addr_mode == addr_mode_t::ZPX ?
+                            reg_x
+                        : if addr_mode == addr_mode_t::ZPY ?
+                            reg_y
+                        :
+                            0
+                        ;
+                        cpubus.addr = zero_page_addr(cpubus.rdata, index);
                     }
                     addr_mode_t::INDX: {
-                        cpubus.addr = {8'h00, cpubus.rdata + reg_x};
+                        cpubus.addr = zero_page_addr(cpubus.rdata, reg_x);
                     }
                     addr_mode_t::INDY: {
-                        cpubus.addr = {8'h00, cpubus.rdata};
+                        cpubus.addr = zero_page_addr(cpubus.rdata, 0);
                     }
                     addr_mode_t::ABS, addr_mode_t::ABSX, addr_mode_t::ABSY, addr_mode_t::IND: {
                         cpubus.addr = reg_pc + 2;
@@ -199,25 +342,12 @@ pub module cpu (
             }
             cpu_state_t::OP2: {
                 case (addr_mode) {
-                    addr_mode_t::INDX: {
-                        cpubus.addr = {8'h00, ptr_addr + 8'd1};
+                    addr_mode_t::INDX, addr_mode_t::INDY: {
+                        cpubus.addr = zero_page_addr(ptr_addr, 1);
                     }
-                    addr_mode_t::INDY: {
-                        cpubus.addr = {8'h00, ptr_addr + 8'd1};
-                    }
-                    addr_mode_t::ABS: {
+                    addr_mode_t::ABS, addr_mode_t::ABSX, addr_mode_t::ABSY: {
                         if (!is_store_inst(decoded_inst)) {
-                            cpubus.addr = {cpubus.rdata, op1};
-                        }
-                    }
-                    addr_mode_t::ABSX: {
-                        if (!is_store_inst(decoded_inst)) {
-                            cpubus.addr = {cpubus.rdata, op1} + reg_x;
-                        }
-                    }
-                    addr_mode_t::ABSY: {
-                        if (!is_store_inst(decoded_inst)) {
-                            cpubus.addr = {cpubus.rdata, op1} + reg_y;
+                            cpubus.addr = indexed_addr(addr_mode, {cpubus.rdata, op1}, reg_x, reg_y);
                         }
                     }
                     addr_mode_t::IND: {
@@ -254,60 +384,14 @@ pub module cpu (
                         cpubus.wdata = cpubus.rdata;
                         cpubus.wen   = 1'b1;
                     }
-                    inst_t::STA: {
-                        case (addr_mode) {
-                            addr_mode_t::ZP: {
-                                cpubus.addr = {8'h00, op1};
-                            }
-                            addr_mode_t::ZPX: {
-                                cpubus.addr = {8'h00, op1 + reg_x};
-                            }
-                            addr_mode_t::INDX, addr_mode_t::INDY, addr_mode_t::ABS, addr_mode_t::ABSX,
-                            addr_mode_t::ABSY: {
-                                cpubus.addr = eff_addr;
-                            }
-                            default: {
-                                cpubus.addr = {8'h00, op1};
-                            }
+                    inst_t::STA, inst_t::STX, inst_t::STY: {
+                        cpubus.addr = eff_addr;
+                        case (decoded_inst) {
+                            inst_t::STA: cpubus.wdata = reg_a;
+                            inst_t::STX: cpubus.wdata = reg_x;
+                            inst_t::STY: cpubus.wdata = reg_y;
                         }
-                        cpubus.wdata = reg_a;
-                        cpubus.wen   = 1'b1;
-                    }
-                    inst_t::STX: {
-                        case (addr_mode) {
-                            addr_mode_t::ZP: {
-                                cpubus.addr = {8'h00, op1};
-                            }
-                            addr_mode_t::ZPY: {
-                                cpubus.addr = {8'h00, op1 + reg_y};
-                            }
-                            addr_mode_t::ABS: {
-                                cpubus.addr = eff_addr;
-                            }
-                            default: {
-                                cpubus.addr = {8'h00, op1};
-                            }
-                        }
-                        cpubus.wdata = reg_x;
-                        cpubus.wen   = 1'b1;
-                    }
-                    inst_t::STY: {
-                        case (addr_mode) {
-                            addr_mode_t::ZP: {
-                                cpubus.addr = {8'h00, op1};
-                            }
-                            addr_mode_t::ZPX: {
-                                cpubus.addr = {8'h00, op1 + reg_x};
-                            }
-                            addr_mode_t::ABS: {
-                                cpubus.addr = eff_addr;
-                            }
-                            default: {
-                                cpubus.addr = {8'h00, op1};
-                            }
-                        }
-                        cpubus.wdata = reg_y;
-                        cpubus.wen   = 1'b1;
+                        cpubus.wen = 1'b1;
                     }
                 }
             }
@@ -455,48 +539,12 @@ pub module cpu (
                                             state  = cpu_state_t::FETCH;
                                         }
 
-                                        // IRQフラグ無効
-                                        // NMIはIフラグに関係なく受け付ける
-                                        inst_t::SEI: {
-                                            reg_p[FLAG_INTERRUPT] = 1'b1;
-                                            state                 = cpu_state_t::FETCH;
-                                            reg_pc                = reg_pc + decode_entry.len;
-                                        }
-
-                                        inst_t::SEC: {
-                                            reg_p[FLAG_CARRY] = 1'b1;
-                                            state             = cpu_state_t::FETCH;
-                                            reg_pc            = reg_pc + decode_entry.len;
-                                        }
-
-                                        inst_t::CLI: {
-                                            reg_p[FLAG_INTERRUPT] = 1'b0;
-                                            state                 = cpu_state_t::FETCH;
-                                            reg_pc                = reg_pc + decode_entry.len;
-                                        }
-
-                                        inst_t::CLD: {
-                                            reg_p[FLAG_DECIMAL] = 1'b0;
-                                            state               = cpu_state_t::FETCH;
-                                            reg_pc              = reg_pc + decode_entry.len;
-                                        }
-
-                                        inst_t::CLC: {
-                                            reg_p[FLAG_CARRY] = 1'b0;
-                                            state             = cpu_state_t::FETCH;
-                                            reg_pc            = reg_pc + decode_entry.len;
-                                        }
-
-                                        inst_t::SED: {
-                                            reg_p[FLAG_DECIMAL] = 1'b1;
-                                            state               = cpu_state_t::FETCH;
-                                            reg_pc              = reg_pc + decode_entry.len;
-                                        }
-
+                                        // NMIはIフラグに関係なく受け付ける。
+                                        inst_t::SEI, inst_t::CLI, inst_t::SEC, inst_t::CLC, inst_t::SED, inst_t::CLD,
                                         inst_t::CLV: {
-                                            reg_p[FLAG_OVERFLOW] = 1'b0;
-                                            state                = cpu_state_t::FETCH;
-                                            reg_pc               = reg_pc + decode_entry.len;
+                                            reg_p  = status_after_flag_inst(decode_entry.inst_kind, reg_p);
+                                            state  = cpu_state_t::FETCH;
+                                            reg_pc = reg_pc + decode_entry.len;
                                         }
 
                                         inst_t::NOP: {
@@ -512,119 +560,75 @@ pub module cpu (
                                         }
 
                                         inst_t::TSX: {
-                                            reg_x                = reg_sp;
-                                            reg_p[FLAG_ZERO]     = (reg_sp == 0);
-                                            reg_p[FLAG_NEGATIVE] = reg_sp[7];
-                                            state                = cpu_state_t::FETCH;
-                                            reg_pc               = reg_pc + decode_entry.len;
+                                            reg_x  = reg_sp;
+                                            reg_p  = update_zn(reg_p, reg_sp);
+                                            state  = cpu_state_t::FETCH;
+                                            reg_pc = reg_pc + decode_entry.len;
                                         }
 
                                         inst_t::TAX: {
-                                            reg_x                = reg_a;
-                                            reg_p[FLAG_ZERO]     = (reg_a == 0);
-                                            reg_p[FLAG_NEGATIVE] = reg_a[7];
-                                            state                = cpu_state_t::FETCH;
-                                            reg_pc               = reg_pc + decode_entry.len;
+                                            reg_x  = reg_a;
+                                            reg_p  = update_zn(reg_p, reg_a);
+                                            state  = cpu_state_t::FETCH;
+                                            reg_pc = reg_pc + decode_entry.len;
                                         }
 
                                         inst_t::TXA: {
-                                            reg_a                = reg_x;
-                                            reg_p[FLAG_ZERO]     = (reg_x == 0);
-                                            reg_p[FLAG_NEGATIVE] = reg_x[7];
-                                            state                = cpu_state_t::FETCH;
-                                            reg_pc               = reg_pc + decode_entry.len;
+                                            reg_a  = reg_x;
+                                            reg_p  = update_zn(reg_p, reg_x);
+                                            state  = cpu_state_t::FETCH;
+                                            reg_pc = reg_pc + decode_entry.len;
                                         }
 
                                         inst_t::TAY: {
-                                            reg_y                = reg_a;
-                                            reg_p[FLAG_ZERO]     = (reg_a == 0);
-                                            reg_p[FLAG_NEGATIVE] = reg_a[7];
-                                            state                = cpu_state_t::FETCH;
-                                            reg_pc               = reg_pc + decode_entry.len;
+                                            reg_y  = reg_a;
+                                            reg_p  = update_zn(reg_p, reg_a);
+                                            state  = cpu_state_t::FETCH;
+                                            reg_pc = reg_pc + decode_entry.len;
                                         }
 
                                         inst_t::TYA: {
-                                            reg_a                = reg_y;
-                                            reg_p[FLAG_ZERO]     = (reg_y == 0);
-                                            reg_p[FLAG_NEGATIVE] = reg_y[7];
-                                            state                = cpu_state_t::FETCH;
-                                            reg_pc               = reg_pc + decode_entry.len;
+                                            reg_a  = reg_y;
+                                            reg_p  = update_zn(reg_p, reg_y);
+                                            state  = cpu_state_t::FETCH;
+                                            reg_pc = reg_pc + decode_entry.len;
                                         }
 
-                                        inst_t::ASL: {
-                                            let result              : logic<8> = reg_a << 1;
-                                            reg_p[FLAG_CARRY]    = reg_a[7];
-                                            reg_p[FLAG_ZERO]     = (result == 0);
-                                            reg_p[FLAG_NEGATIVE] = result[7];
-                                            reg_a                = result;
-                                            state                = cpu_state_t::FETCH;
-                                            reg_pc               = reg_pc + decode_entry.len;
+                                        inst_t::ASL, inst_t::LSR, inst_t::ROL, inst_t::ROR: {
+                                            let result: alu_result_t = alu_execute(
+                                                decode_entry.inst_kind,
+                                                reg_a,
+                                                0,
+                                                reg_p,
+                                            );
+                                            reg_a  = result.value;
+                                            reg_p  = result.status;
+                                            state  = cpu_state_t::FETCH;
+                                            reg_pc = reg_pc + decode_entry.len;
                                         }
 
-                                        inst_t::LSR: {
-                                            let result              : logic<8> = reg_a >> 1;
-                                            reg_p[FLAG_CARRY]    = reg_a[0];
-                                            reg_p[FLAG_ZERO]     = (result == 0);
-                                            reg_p[FLAG_NEGATIVE] = 1'b0;
-                                            reg_a                = result;
-                                            state                = cpu_state_t::FETCH;
-                                            reg_pc               = reg_pc + decode_entry.len;
-                                        }
-
-                                        inst_t::ROL: {
-                                            let result              : logic<8> = {reg_a[6:0], reg_p[FLAG_CARRY]};
-                                            reg_p[FLAG_CARRY]    = reg_a[7];
-                                            reg_p[FLAG_ZERO]     = (result == 0);
-                                            reg_p[FLAG_NEGATIVE] = result[7];
-                                            reg_a                = result;
-                                            state                = cpu_state_t::FETCH;
-                                            reg_pc               = reg_pc + decode_entry.len;
-                                        }
-
-                                        inst_t::ROR: {
-                                            let result              : logic<8> = {reg_p[FLAG_CARRY], reg_a[7:1]};
-                                            reg_p[FLAG_CARRY]    = reg_a[0];
-                                            reg_p[FLAG_ZERO]     = (result == 0);
-                                            reg_p[FLAG_NEGATIVE] = result[7];
-                                            reg_a                = result;
-                                            state                = cpu_state_t::FETCH;
-                                            reg_pc               = reg_pc + decode_entry.len;
-                                        }
-
-                                        inst_t::INX: {
-                                            let result              : logic<8> = reg_x + 1;
-                                            reg_x                = result;
-                                            reg_p[FLAG_ZERO]     = (result == 0);
-                                            reg_p[FLAG_NEGATIVE] = result[7];
-                                            state                = cpu_state_t::FETCH;
-                                            reg_pc               = reg_pc + decode_entry.len;
-                                        }
-
-                                        inst_t::INY: {
-                                            let result              : logic<8> = reg_y + 1;
-                                            reg_y                = result;
-                                            reg_p[FLAG_ZERO]     = (result == 0);
-                                            reg_p[FLAG_NEGATIVE] = result[7];
-                                            state                = cpu_state_t::FETCH;
-                                            reg_pc               = reg_pc + decode_entry.len;
-                                        }
-
-                                        inst_t::DEX: {
-                                            let result              : logic<8> = reg_x - 1;
-                                            reg_x                = result;
-                                            reg_p[FLAG_ZERO]     = (result == 0);
-                                            reg_p[FLAG_NEGATIVE] = result[7];
-                                            state                = cpu_state_t::FETCH;
-                                            reg_pc               = reg_pc + decode_entry.len;
-                                        }
-
-                                        inst_t::DEY: {
-                                            let result              : logic<8> = reg_y - 1;
-                                            reg_y                = result;
-                                            reg_p[FLAG_ZERO]     = (result == 0);
-                                            reg_p[FLAG_NEGATIVE] = result[7];
-                                            state                = cpu_state_t::FETCH;
-                                            reg_pc               = reg_pc + decode_entry.len;
+                                        inst_t::INX, inst_t::INY, inst_t::DEX, inst_t::DEY: {
+                                            let old_value: logic       <8> = if decode_entry.inst_kind == inst_t::INX
+                                                || decode_entry.inst_kind == inst_t::DEX ?
+                                                reg_x
+                                            :
+                                                reg_y
+                                            ;
+                                            let result   : alu_result_t    = alu_execute(
+                                                decode_entry.inst_kind,
+                                                old_value,
+                                                0,
+                                                reg_p,
+                                            );
+                                            if (decode_entry.inst_kind == inst_t::INX || decode_entry.inst_kind
+                                                == inst_t::DEX) {
+                                                reg_x = result.value;
+                                            } else {
+                                                reg_y = result.value;
+                                            }
+                                            reg_p  = result.status;
+                                            state  = cpu_state_t::FETCH;
+                                            reg_pc = reg_pc + decode_entry.len;
                                         }
 
                                         inst_t::RTS: {
@@ -637,11 +641,8 @@ pub module cpu (
                                     }
                                 }
                                 addr_mode_t::IMM, addr_mode_t::ZP, addr_mode_t::ZPX, addr_mode_t::ZPY,
-                                addr_mode_t::INDX, addr_mode_t::INDY, addr_mode_t::REL: {
-                                    state = cpu_state_t::OP1;
-                                }
-
-                                addr_mode_t::ABS, addr_mode_t::ABSX, addr_mode_t::ABSY, addr_mode_t::IND: {
+                                addr_mode_t::INDX, addr_mode_t::INDY, addr_mode_t::REL, addr_mode_t::ABS,
+                                addr_mode_t::ABSX, addr_mode_t::ABSY, addr_mode_t::IND: {
                                     state = cpu_state_t::OP1;
                                 }
                                 default: {
@@ -657,19 +658,16 @@ pub module cpu (
                                 op1   = cpubus.rdata;
                                 state = cpu_state_t::EXEC;
                             }
-                            addr_mode_t::ZP: {
+                            addr_mode_t::ZP, addr_mode_t::ZPX, addr_mode_t::ZPY: {
+                                let index   : logic<8> = if addr_mode == addr_mode_t::ZPX ?
+                                    reg_x
+                                : if addr_mode == addr_mode_t::ZPY ?
+                                    reg_y
+                                :
+                                    0
+                                ;
                                 op1      = cpubus.rdata;
-                                eff_addr = {8'h00, cpubus.rdata};
-                                state    = cpu_state_t::EXEC;
-                            }
-                            addr_mode_t::ZPX: {
-                                op1      = cpubus.rdata;
-                                eff_addr = {8'h00, cpubus.rdata + reg_x};
-                                state    = cpu_state_t::EXEC;
-                            }
-                            addr_mode_t::ZPY: {
-                                op1      = cpubus.rdata;
-                                eff_addr = {8'h00, cpubus.rdata + reg_y};
+                                eff_addr = zero_page_addr(cpubus.rdata, index);
                                 state    = cpu_state_t::EXEC;
                             }
                             addr_mode_t::INDX: {
@@ -682,19 +680,7 @@ pub module cpu (
                                 ptr_addr = cpubus.rdata;
                                 state    = cpu_state_t::OP2;
                             }
-                            addr_mode_t::ABS: {
-                                op1   = cpubus.rdata;
-                                state = cpu_state_t::OP2;
-                            }
-                            addr_mode_t::ABSX: {
-                                op1   = cpubus.rdata;
-                                state = cpu_state_t::OP2;
-                            }
-                            addr_mode_t::ABSY: {
-                                op1   = cpubus.rdata;
-                                state = cpu_state_t::OP2;
-                            }
-                            addr_mode_t::IND: {
+                            addr_mode_t::ABS, addr_mode_t::ABSX, addr_mode_t::ABSY, addr_mode_t::IND: {
                                 op1   = cpubus.rdata;
                                 state = cpu_state_t::OP2;
                             }
@@ -706,30 +692,18 @@ pub module cpu (
 
                     cpu_state_t::OP2: {
                         case (addr_mode) {
-                            addr_mode_t::INDX: {
+                            addr_mode_t::INDX, addr_mode_t::INDY: {
                                 op1   = cpubus.rdata;
                                 state = cpu_state_t::OP3;
                             }
-                            addr_mode_t::INDY: {
-                                op1   = cpubus.rdata;
-                                state = cpu_state_t::OP3;
-                            }
-                            addr_mode_t::ABS: {
-                                eff_addr = {cpubus.rdata, op1};
+                            addr_mode_t::ABS, addr_mode_t::ABSX, addr_mode_t::ABSY: {
+                                eff_addr = indexed_addr(addr_mode, {cpubus.rdata, op1}, reg_x, reg_y);
                                 if (decoded_inst == inst_t::JMP) {
                                     reg_pc = {cpubus.rdata, op1};
                                     state  = cpu_state_t::FETCH;
                                 } else {
                                     state = cpu_state_t::EXEC;
                                 }
-                            }
-                            addr_mode_t::ABSX: {
-                                eff_addr = {cpubus.rdata, op1} + reg_x;
-                                state    = cpu_state_t::EXEC;
-                            }
-                            addr_mode_t::ABSY: {
-                                eff_addr = {cpubus.rdata, op1} + reg_y;
-                                state    = cpu_state_t::EXEC;
                             }
                             addr_mode_t::IND: {
                                 return_addr = {cpubus.rdata, op1};
@@ -744,12 +718,8 @@ pub module cpu (
                     cpu_state_t::OP3: {
                         case (addr_mode) {
                             addr_mode_t::INDX, addr_mode_t::INDY: {
-                                if (addr_mode == addr_mode_t::INDX) {
-                                    eff_addr = {cpubus.rdata, op1};
-                                } else {
-                                    eff_addr = {cpubus.rdata, op1} + reg_y;
-                                }
-                                state = cpu_state_t::EXEC;
+                                eff_addr = indexed_addr(addr_mode, {cpubus.rdata, op1}, reg_x, reg_y);
+                                state    = cpu_state_t::EXEC;
                             }
                             default: {
                                 state = cpu_state_t::FETCH;
@@ -777,82 +747,13 @@ pub module cpu (
                         ;
                         let branch_offset: signed logic<16> = {exec_data[7] repeat 8, exec_data};
                         case (decoded_inst) {
-                            // C=0なら分岐する
-                            inst_t::BCC: {
-                                if (reg_p[FLAG_CARRY] == 0) {
-                                    reg_pc = reg_pc + 16'd2 + branch_offset;
-                                } else {
-                                    reg_pc = reg_pc + 2;
-                                }
-                                state = cpu_state_t::FETCH;
-                            }
-
-                            // C=1なら分岐する
-                            inst_t::BCS: {
-                                if (reg_p[FLAG_CARRY] == 1) {
-                                    reg_pc = reg_pc + 16'd2 + branch_offset;
-                                } else {
-                                    reg_pc = reg_pc + 2;
-                                }
-                                state = cpu_state_t::FETCH;
-                            }
-
-                            // Z=0なら分岐する
-                            inst_t::BNE: {
-                                if (reg_p[FLAG_ZERO] == 0) {
-                                    reg_pc = reg_pc + 16'd2 + branch_offset;
-                                } else {
-                                    reg_pc = reg_pc + 2;
-                                }
-                                state = cpu_state_t::FETCH;
-                            }
-
-                            // Z=1なら分岐する
-                            inst_t::BEQ: {
-                                if (reg_p[FLAG_ZERO] == 1) {
-                                    reg_pc = reg_pc + 16'd2 + branch_offset;
-                                } else {
-                                    reg_pc = reg_pc + 2;
-                                }
-                                state = cpu_state_t::FETCH;
-                            }
-
-                            // N=0なら分岐する
-                            inst_t::BPL: {
-                                if (reg_p[FLAG_NEGATIVE] == 0) {
-                                    reg_pc = reg_pc + 16'd2 + branch_offset;
-                                } else {
-                                    reg_pc = reg_pc + 2;
-                                }
-                                state = cpu_state_t::FETCH;
-                            }
-
-                            // N=1なら分岐する
-                            inst_t::BMI: {
-                                if (reg_p[FLAG_NEGATIVE] == 1) {
-                                    reg_pc = reg_pc + 16'd2 + branch_offset;
-                                } else {
-                                    reg_pc = reg_pc + 2;
-                                }
-                                state = cpu_state_t::FETCH;
-                            }
-
-                            // V=0なら分岐する
-                            inst_t::BVC: {
-                                if (reg_p[FLAG_OVERFLOW] == 0) {
-                                    reg_pc = reg_pc + 16'd2 + branch_offset;
-                                } else {
-                                    reg_pc = reg_pc + 2;
-                                }
-                                state = cpu_state_t::FETCH;
-                            }
-
-                            // V=1なら分岐する
+                            // 8種類の分岐命令は、参照するフラグだけが異なる。
+                            inst_t::BCC, inst_t::BCS, inst_t::BNE, inst_t::BEQ, inst_t::BPL, inst_t::BMI, inst_t::BVC,
                             inst_t::BVS: {
-                                if (reg_p[FLAG_OVERFLOW] == 1) {
+                                if (branch_taken(decoded_inst, reg_p)) {
                                     reg_pc = reg_pc + 16'd2 + branch_offset;
                                 } else {
-                                    reg_pc = reg_pc + 2;
+                                    reg_pc = reg_pc + 16'd2;
                                 }
                                 state = cpu_state_t::FETCH;
                             }
@@ -876,173 +777,62 @@ pub module cpu (
                             }
 
                             inst_t::PLA: {
-                                reg_a                = exec_data;
-                                reg_p[FLAG_ZERO]     = (exec_data == 0);
-                                reg_p[FLAG_NEGATIVE] = exec_data[7];
-                                reg_sp               = reg_sp + 1;
-                                reg_pc               = reg_pc + inst_len;
-                                state                = cpu_state_t::FETCH;
+                                reg_a  = exec_data;
+                                reg_p  = update_zn(reg_p, exec_data);
+                                reg_sp = reg_sp + 1;
+                                reg_pc = reg_pc + inst_len;
+                                state  = cpu_state_t::FETCH;
                             }
 
-                            inst_t::LDA: {
-                                reg_a                = exec_data;
-                                reg_p[FLAG_ZERO]     = (exec_data == 0);
-                                reg_p[FLAG_NEGATIVE] = exec_data[7];
-                                reg_pc               = reg_pc + inst_len;
-                                state                = cpu_state_t::FETCH;
+                            inst_t::LDA, inst_t::LDX, inst_t::LDY: {
+                                case (decoded_inst) {
+                                    inst_t::LDA: reg_a = exec_data;
+                                    inst_t::LDX: reg_x = exec_data;
+                                    inst_t::LDY: reg_y = exec_data;
+                                }
+                                reg_p  = update_zn(reg_p, exec_data);
+                                reg_pc = reg_pc + inst_len;
+                                state  = cpu_state_t::FETCH;
                             }
-                            inst_t::LDX: {
-                                reg_x                = exec_data;
-                                reg_p[FLAG_ZERO]     = (exec_data == 0);
-                                reg_p[FLAG_NEGATIVE] = exec_data[7];
-                                reg_pc               = reg_pc + inst_len;
-                                state                = cpu_state_t::FETCH;
+                            inst_t::CMP, inst_t::CPX, inst_t::CPY: {
+                                let left  : logic       <8> = if decoded_inst == inst_t::CMP ?
+                                    reg_a
+                                : if decoded_inst == inst_t::CPX ?
+                                    reg_x
+                                :
+                                    reg_y
+                                ;
+                                let result: alu_result_t    = alu_execute(decoded_inst, left, exec_data, reg_p);
+                                reg_p  = result.status;
+                                reg_pc = reg_pc + inst_len;
+                                state  = cpu_state_t::FETCH;
                             }
-                            inst_t::LDY: {
-                                reg_y                = exec_data;
-                                reg_p[FLAG_ZERO]     = (exec_data == 0);
-                                reg_p[FLAG_NEGATIVE] = exec_data[7];
-                                reg_pc               = reg_pc + inst_len;
-                                state                = cpu_state_t::FETCH;
+                            inst_t::ADC, inst_t::SBC, inst_t::ORA, inst_t::AND, inst_t::EOR: {
+                                let result: alu_result_t = alu_execute(decoded_inst, reg_a, exec_data, reg_p);
+                                reg_a  = result.value;
+                                reg_p  = result.status;
+                                reg_pc = reg_pc + inst_len;
+                                state  = cpu_state_t::FETCH;
                             }
-                            inst_t::CPX: {
-                                let result              : logic<8> = reg_x - exec_data;
-                                reg_p[FLAG_CARRY]    = (reg_x >= exec_data);
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_NEGATIVE] = result[7];
-                                reg_pc               = reg_pc + inst_len;
-                                state                = cpu_state_t::FETCH;
+                            inst_t::INC, inst_t::DEC: {
+                                let result: alu_result_t = alu_execute(decoded_inst, exec_data, 0, reg_p);
+                                op2    = result.value;
+                                reg_p  = result.status;
+                                state  = cpu_state_t::RMW_WRITE;
                             }
-                            inst_t::CPY: {
-                                let result              : logic<8> = reg_y - exec_data;
-                                reg_p[FLAG_CARRY]    = (reg_y >= exec_data);
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_NEGATIVE] = result[7];
-                                reg_pc               = reg_pc + inst_len;
-                                state                = cpu_state_t::FETCH;
-                            }
-                            inst_t::CMP: {
-                                let result              : logic<8> = reg_a - exec_data;
-                                reg_p[FLAG_CARRY]    = (reg_a >= exec_data);
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_NEGATIVE] = result[7];
-                                reg_pc               = reg_pc + inst_len;
-                                state                = cpu_state_t::FETCH;
-                            }
-                            inst_t::ADC: {
-                                let old_a               : logic<8> = reg_a;
-                                let sum                 : logic<9> = {1'b0, old_a} + {1'b0, exec_data}
-                                    + {8'h00, reg_p[FLAG_CARRY]};
-                                let result              : logic<8> = sum[7:0];
-                                reg_a                = result;
-                                reg_p[FLAG_CARRY]    = sum[8];
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_OVERFLOW] = ((old_a ^ result) & (exec_data ^ result) & 8'h80) != 0;
-                                reg_p[FLAG_NEGATIVE] = result[7];
-                                reg_pc               = reg_pc + inst_len;
-                                state                = cpu_state_t::FETCH;
-                            }
-                            inst_t::SBC: {
-                                let old_a               : logic<8> = reg_a;
-                                let inv_mem             : logic<8> = ~exec_data;
-                                let sum                 : logic<9> = {1'b0, old_a} + {1'b0, inv_mem}
-                                    + {8'h00, reg_p[FLAG_CARRY]};
-                                let result              : logic<8> = sum[7:0];
-                                reg_a                = result;
-                                reg_p[FLAG_CARRY]    = sum[8];
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_OVERFLOW] = ((old_a ^ result) & (inv_mem ^ result) & 8'h80) != 0;
-                                reg_p[FLAG_NEGATIVE] = result[7];
-                                reg_pc               = reg_pc + inst_len;
-                                state                = cpu_state_t::FETCH;
-                            }
-                            inst_t::ORA: {
-                                let result              : logic<8> = reg_a | exec_data;
-                                reg_a                = result;
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_NEGATIVE] = result[7];
-                                reg_pc               = reg_pc + inst_len;
-                                state                = cpu_state_t::FETCH;
-                            }
-                            inst_t::INC: {
-                                let result              : logic<8> = exec_data + 1;
-                                op2                  = result;
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_NEGATIVE] = result[7];
-                                state                = cpu_state_t::RMW_WRITE;
-                            }
-                            inst_t::DEC: {
-                                let result              : logic<8> = exec_data - 1;
-                                op2                  = result;
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_NEGATIVE] = result[7];
-                                state                = cpu_state_t::RMW_WRITE;
-                            }
-                            inst_t::ASL: {
-                                let result              : logic<8> = exec_data << 1;
-                                op2                  = result;
-                                reg_p[FLAG_CARRY]    = exec_data[7];
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_NEGATIVE] = result[7];
-                                state                = cpu_state_t::RMW_WRITE;
-                            }
-                            inst_t::LSR: {
-                                let result              : logic<8> = exec_data >> 1;
-                                op2                  = result;
-                                reg_p[FLAG_CARRY]    = exec_data[0];
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_NEGATIVE] = 1'b0;
-                                state                = cpu_state_t::RMW_WRITE;
-                            }
-                            inst_t::ROL: {
-                                let result              : logic<8> = {exec_data[6:0], reg_p[FLAG_CARRY]};
-                                op2                  = result;
-                                reg_p[FLAG_CARRY]    = exec_data[7];
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_NEGATIVE] = result[7];
-                                state                = cpu_state_t::RMW_WRITE;
-                            }
-                            inst_t::ROR: {
-                                let result              : logic<8> = {reg_p[FLAG_CARRY], exec_data[7:1]};
-                                op2                  = result;
-                                reg_p[FLAG_CARRY]    = exec_data[0];
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_NEGATIVE] = result[7];
-                                state                = cpu_state_t::RMW_WRITE;
-                            }
-                            inst_t::AND: {
-                                let result              : logic<8> = reg_a & exec_data;
-                                reg_a                = result;
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_NEGATIVE] = result[7];
-                                reg_pc               = reg_pc + inst_len;
-                                state                = cpu_state_t::FETCH;
-                            }
-                            inst_t::EOR: {
-                                let result              : logic<8> = reg_a ^ exec_data;
-                                reg_a                = result;
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_NEGATIVE] = result[7];
-                                reg_pc               = reg_pc + inst_len;
-                                state                = cpu_state_t::FETCH;
+                            inst_t::ASL, inst_t::LSR, inst_t::ROL, inst_t::ROR: {
+                                let result: alu_result_t = alu_execute(decoded_inst, exec_data, 0, reg_p);
+                                op2    = result.value;
+                                reg_p  = result.status;
+                                state  = cpu_state_t::RMW_WRITE;
                             }
                             inst_t::BIT: {
-                                let result              : logic<8> = reg_a & exec_data;
-                                reg_p[FLAG_ZERO]     = (result == 0);
-                                reg_p[FLAG_OVERFLOW] = exec_data[6];
-                                reg_p[FLAG_NEGATIVE] = exec_data[7];
-                                reg_pc               = reg_pc + inst_len;
-                                state                = cpu_state_t::FETCH;
-                            }
-                            inst_t::STA: {
+                                let result: alu_result_t = alu_execute(decoded_inst, reg_a, exec_data, reg_p);
+                                reg_p  = result.status;
                                 reg_pc = reg_pc + inst_len;
                                 state  = cpu_state_t::FETCH;
                             }
-                            inst_t::STX: {
-                                reg_pc = reg_pc + inst_len;
-                                state  = cpu_state_t::FETCH;
-                            }
-                            inst_t::STY: {
+                            inst_t::STA, inst_t::STX, inst_t::STY: {
                                 reg_pc = reg_pc + inst_len;
                                 state  = cpu_state_t::FETCH;
                             }
