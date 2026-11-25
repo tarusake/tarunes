@@ -1,0 +1,12 @@
+references,quantity,manufacturer,mpn,package,jlcpcb_part,assembly,notes
+U1-U5,5,Toshiba,TC74HC595AF,SOP-16,110077,MANUAL_AKIZUKI,Akizuki code 110077; 5V output shift registers
+U7-U8,2,Toshiba,TC74HC165AP(F),DIP-16,114679,MANUAL_AKIZUKI,Akizuki code 114679; use DIP sockets if desired
+U9,1,Toshiba,TC74VHCT540AF,SOP-20,100659,MANUAL_AKIZUKI,Akizuki code 100659; inverting 3V3-to-5V control level shifter
+U10,1,Toshiba,TCK107AFLF,SOT-23-5,116072,MANUAL_AKIZUKI,Akizuki code 116072; positive-logic cartridge load switch
+U11,1,Akizuki,AE-XCL102D503CR-G,DIP-6,113065,MANUAL_AKIZUKI,Akizuki code 113065; 5V 210mA boost module
+R1,1,Generic,CF25J1KB,Axial-7.62mm,125102,MANUAL_AKIZUKI,Akizuki code 125102; 1k MISO upper divider
+R2,1,Generic,CF25J2KB,Axial-7.62mm,125202,MANUAL_AKIZUKI,Akizuki code 125202; 2k MISO lower divider
+C1-C9,9,Samsung,CL21B105KPFNNNE,0805,107549,MANUAL_AKIZUKI,Akizuki code 107549; 1uF 10V X7R 2012 decoupling
+C10,1,muRata,GRM21BR61E226ME44,0805,108240,MANUAL_AKIZUKI,Akizuki code 108240; 22uF 25V X5R output bulk
+J2,1,Akizuki,PH-2x40SG(6.1/6.1),cut to 2x6 2.54mm,112180,MANUAL_AKIZUKI,Akizuki code 112180; cut one 2x6 section and mount below PCB for PMOD0
+J1,1,ChengHaoRan,AliExpress_1005007638566482_Option_E,FC 60pin with mounting ears,,DNP,user supplied; mechanical dimensions must be measured before final Gerber
