@@ -1,0 +1,13 @@
+# Generated previews and manufacturing outputs
+manufacturing/board-*.svg
+manufacturing/*.rpt
+manufacturing/bom.csv
+manufacturing/cpl.csv
+manufacturing/manual-parts.csv
+manufacturing/gerbers/
+manufacturing/gerbers.zip
+
+# Generated routing and documentation files
+*.dsn
+*.ses
+*-schematic.pdf

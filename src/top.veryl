@@ -32,6 +32,7 @@ pub module top #(
     param ENABLE_APU   : bbool  = false,
     param I2S_TEST_TONE: bbool  = false,
     param USE_CARTRIDGE: bbool  = false,
+    param USE_FC_SERIAL: bbool  = false,
 ) (
     clk                     : input  clock    ,
     rst                     : input  reset    ,
@@ -69,6 +70,12 @@ pub module top #(
     cart_ppu_data_oe        : output logic    ,
     cart_ppu_rd_n           : output logic    ,
     cart_ppu_wr_n           : output logic    ,
+    fc_cart_miso            : input  logic    ,
+    fc_cart_sclk            : output logic    ,
+    fc_cart_mosi            : output logic    ,
+    fc_cart_rclk            : output logic    ,
+    fc_cart_pl_n            : output logic    ,
+    fc_cart_pwr_en          : output logic    ,
     debug_palette0          : output logic<8> ,
     debug_palette1          : output logic<8> ,
     debug_palette2          : output logic<8> ,
@@ -89,16 +96,16 @@ pub module top #(
     inst prombus    : bus_if::<8, 15>;
     inst dma_ppubus : bus_if::<8, 3>;
     inst dma_wrambus: bus_if::<8, 11>;
-    var nmi                : logic           ;
-    var ctrl_sel           : logic           ;
-    var dma_busy           : logic           ;
-    var dma_start          : logic           ;
-    var dma_page           : logic<8>        ;
-    var cpu_halt           : logic           ;
-    var core_stall         : logic           ;
-    var apu_stall          : logic           ;
-    var ppu_frame_wait     : logic           ;
-    var audio_sample_raw   : logic<8>        ;
+    var nmi             : logic   ;
+    var ctrl_sel        : logic   ;
+    var dma_busy        : logic   ;
+    var dma_start       : logic   ;
+    var dma_page        : logic<8>;
+    var cpu_halt        : logic   ;
+    var core_stall      : logic   ;
+    var apu_stall       : logic   ;
+    var ppu_frame_wait  : logic   ;
+    var audio_sample_raw: logic<8>;
     // 音声FIFOはGowin EDAにBRAMとして推論させる。
     // RAM読み出し先audio_play_sampleをif_resetでも代入すると推論形から外れ、
     // Gowinの合成器がSegmentation faultで停止するため、初期値はinitialで与える。
@@ -116,7 +123,15 @@ pub module top #(
     var controller2_btns   : logic<8>        ;
     var prom_selected      : logic           ;
     var crom_selected      : logic           ;
+    var core_rst           : reset           ;
+    var fc_load_done       : logic           ;
+    var prg_load_wen       : logic           ;
+    var prg_load_addr      : logic<15>       ;
+    var chr_load_wen       : logic           ;
+    var chr_load_addr      : logic<13>       ;
+    var fc_load_data       : logic<8>        ;
 
+    assign core_rst          = rst && (if USE_FC_SERIAL ? fc_load_done : 1'b1);
     assign core_stall        = ppu_frame_wait;
     assign apu_stall         = audio_frame_samples == AUDIO_SAMPLES_PER_FRAME;
     assign audio_sample      = audio_sample_raw;
@@ -134,7 +149,7 @@ pub module top #(
 
     inst cpu_inst: cpu (
         clk           : clk           ,
-        rst           : rst           ,
+        rst           : core_rst      ,
         stall         : core_stall    ,
         nmi           : nmi           ,
         halt          : cpu_halt      ,
@@ -145,14 +160,14 @@ pub module top #(
 
     inst wram: memory::<8, 11> (
         clk   : clk       ,
-        rst   : rst       ,
+        rst   : core_rst  ,
         stall : core_stall,
         membus: wrambus   ,
     );
 
     inst ubus_cpu: bus_cpu (
         clk          : clk          ,
-        rst          : rst          ,
+        rst          : core_rst     ,
         stall        : core_stall   ,
         dma_busy     : dma_busy     ,
         dma_start    : dma_start    ,
@@ -171,7 +186,7 @@ pub module top #(
 
     inst oam_dma_inst: oam_dma (
         clk       : clk        ,
-        rst       : rst        ,
+        rst       : core_rst   ,
         stall     : core_stall ,
         start     : dma_start  ,
         page      : dma_page   ,
@@ -183,7 +198,7 @@ pub module top #(
     if (ENABLE_APU) :g_apu {
         inst apu_inst: apu (
             clk         : clk             ,
-            rst         : rst             ,
+            rst         : core_rst        ,
             stall       : apu_stall       ,
             bus_stall   : core_stall      ,
             cpubus      : apubus          ,
@@ -194,7 +209,7 @@ pub module top #(
         assign audio_sample_raw = 8'h80;
     }
 
-    always_ff {
+    always_ff (clk, core_rst) {
         if_reset {
             audio_wr_ptr        = 0;
             audio_rd_ptr        = 0;
@@ -240,7 +255,7 @@ pub module top #(
         TEST_TONE: I2S_TEST_TONE,
     ) (
         clk       : clk              ,
-        rst       : rst              ,
+        rst       : core_rst         ,
         sample    : audio_play_sample,
         bclk      : i2s_bclk         ,
         lrck      : i2s_lrck         ,
@@ -250,7 +265,7 @@ pub module top #(
 
     inst sfc_controller_inst: sfc_controller (
         clk      : clk             ,
-        rst      : rst             ,
+        rst      : core_rst        ,
         sfc_data : sfc_data        ,
         sfc_latch: sfc_latch       ,
         sfc_clk  : sfc_clk         ,
@@ -259,7 +274,7 @@ pub module top #(
 
     inst controller_inst: controller (
         clk             : clk             ,
-        rst             : rst             ,
+        rst             : core_rst        ,
         stall           : core_stall      ,
         sel             : ctrl_sel        ,
         controller1_btns: controller1_btns,
@@ -271,7 +286,7 @@ pub module top #(
 
     inst ppu_inst: ppu (
         clk                     : clk                     ,
-        rst                     : rst                     ,
+        rst                     : core_rst                ,
         frame_sync              : frame_sync              ,
         cpubus                  : cpu_ppubus              ,
         ppubus                  : ppubus                  ,
@@ -293,7 +308,7 @@ pub module top #(
 
     inst hdmi_scaler: hdmi_480p_scaler (
         clk             : clk         ,
-        rst             : rst         ,
+        rst             : core_rst    ,
         core_cycle      : cycle       ,
         core_scanline   : scanline    ,
         core_pixel_index: pixel_index ,
@@ -309,7 +324,7 @@ pub module top #(
 
     inst ubus_ppu: bus_ppu (
         clk          : clk          ,
-        rst          : rst          ,
+        rst          : core_rst     ,
         stall        : core_stall   ,
         crom_selected: crom_selected,
         ppubus       : ppubus       ,
@@ -319,12 +334,61 @@ pub module top #(
 
     inst vram: memory::<8, 11> (
         clk   : clk       ,
-        rst   : rst       ,
+        rst   : core_rst  ,
         stall : core_stall,
         membus: vrambus   ,
     );
 
-    if (USE_CARTRIDGE) :g_cartridge {
+    if (USE_FC_SERIAL) :g_fc_serial {
+        inst fc_loader: fc_serial_loader (
+            clk          : clk           ,
+            rst          : rst           ,
+            cart_miso    : fc_cart_miso  ,
+            cart_sclk    : fc_cart_sclk  ,
+            cart_mosi    : fc_cart_mosi  ,
+            cart_rclk    : fc_cart_rclk  ,
+            cart_pl_n    : fc_cart_pl_n  ,
+            cart_pwr_en  : fc_cart_pwr_en,
+            done         : fc_load_done  ,
+            prg_load_wen : prg_load_wen  ,
+            prg_load_addr: prg_load_addr ,
+            chr_load_wen : chr_load_wen  ,
+            chr_load_addr: chr_load_addr ,
+            load_data    : fc_load_data  ,
+        );
+
+        inst prom: boot_read_only_memory::<8, 15> (
+            clk      : clk          ,
+            rst      : rst          ,
+            stall    : core_stall   ,
+            load_wen : prg_load_wen ,
+            load_addr: prg_load_addr,
+            load_data: fc_load_data ,
+            membus   : prombus      ,
+        );
+
+        inst crom: boot_read_only_memory::<8, 13> (
+            clk      : clk          ,
+            rst      : rst          ,
+            stall    : core_stall   ,
+            load_wen : chr_load_wen ,
+            load_addr: chr_load_addr,
+            load_data: fc_load_data ,
+            membus   : crombus      ,
+        );
+
+        assign cart_cpu_addr     = 0;
+        assign cart_cpu_data_o   = 0;
+        assign cart_cpu_data_oe  = 0;
+        assign cart_cpu_rnw      = 1;
+        assign cart_cpu_romsel_n = 1;
+        assign cart_cpu_m2       = 0;
+        assign cart_ppu_addr     = 0;
+        assign cart_ppu_data_o   = 0;
+        assign cart_ppu_data_oe  = 0;
+        assign cart_ppu_rd_n     = 1;
+        assign cart_ppu_wr_n     = 1;
+    } else if (USE_CARTRIDGE) :g_cartridge {
         inst cartridge_inst: cartridge_bus (
             clk         : clk              ,
             rst         : rst              ,
@@ -347,6 +411,17 @@ pub module top #(
             ppu_rd_n    : cart_ppu_rd_n    ,
             ppu_wr_n    : cart_ppu_wr_n    ,
         );
+        assign fc_load_done   = 1;
+        assign prg_load_wen   = 0;
+        assign prg_load_addr  = 0;
+        assign chr_load_wen   = 0;
+        assign chr_load_addr  = 0;
+        assign fc_load_data   = 0;
+        assign fc_cart_sclk   = 1;
+        assign fc_cart_mosi   = 1;
+        assign fc_cart_rclk   = 1;
+        assign fc_cart_pl_n   = 0;
+        assign fc_cart_pwr_en = 0;
     } else :g_internal_rom {
         inst prom: read_only_memory::<8, 15> #(
             PATH: PROM_PATH,
@@ -377,6 +452,17 @@ pub module top #(
         assign cart_ppu_data_oe  = 0;
         assign cart_ppu_rd_n     = 1;
         assign cart_ppu_wr_n     = 1;
+        assign fc_load_done      = 1;
+        assign prg_load_wen      = 0;
+        assign prg_load_addr     = 0;
+        assign chr_load_wen      = 0;
+        assign chr_load_addr     = 0;
+        assign fc_load_data      = 0;
+        assign fc_cart_sclk      = 1;
+        assign fc_cart_mosi      = 1;
+        assign fc_cart_rclk      = 1;
+        assign fc_cart_pl_n      = 0;
+        assign fc_cart_pwr_en    = 0;
     }
 
 }

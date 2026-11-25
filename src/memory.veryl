@@ -62,3 +62,30 @@ pub module read_only_memory::<DATA_WIDTH: u32, ADDR_WIDTH: u32> #(
         }
     }
 }
+
+/// Read-only from the NES bus, with a separate write port used by a boot
+/// loader before the core is released from reset.
+pub module boot_read_only_memory::<DATA_WIDTH: u32, ADDR_WIDTH: u32> (
+    clk      : input   clock                                              ,
+    rst      : input   reset                                              ,
+    stall    : input   logic                                              ,
+    load_wen : input   logic                                              ,
+    load_addr: input   logic                                  <ADDR_WIDTH>,
+    load_data: input   logic                                  <DATA_WIDTH>,
+    membus   : modport bus_if::<DATA_WIDTH, ADDR_WIDTH>::slave            ,
+) {
+    var mem: logic<DATA_WIDTH> [2 ** ADDR_WIDTH];
+
+    always_ff {
+        if_reset {
+            membus.rdata = 0;
+        } else {
+            if load_wen {
+                mem[load_addr] = load_data;
+            }
+            if !stall && membus.ren {
+                membus.rdata = mem[membus.addr];
+            }
+        }
+    }
+}
