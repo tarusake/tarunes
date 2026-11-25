@@ -1,0 +1,239 @@
+/// Primer20K FC serial-reader board boot loader.
+///
+/// Five 74HC595s drive the cartridge address/control bus and two 74HC165s
+/// return CPU and PPU data.  The board's 74VHCT540 inverts all four control
+/// outputs, so the signals driven here are the inverse of the shift-register
+/// pin levels.  NROM-256 PRG (32 KiB) and CHR (8 KiB) are copied once after
+/// reset, then cartridge power is removed.
+pub module fc_serial_loader #(
+    param POWER_WAIT_CYCLES : logic<18> = 18'd135000,
+    param ACCESS_WAIT_CYCLES: logic<5>  = 5'd14     ,
+    param PRG_LAST_ADDR     : logic<15> = 15'h7FFF  ,
+    param CHR_LAST_ADDR     : logic<13> = 13'h1FFF  ,
+) (
+    clk          : input  clock    ,
+    rst          : input  reset    ,
+    cart_miso    : input  logic    ,
+    cart_sclk    : output logic    ,
+    cart_mosi    : output logic    ,
+    cart_rclk    : output logic    ,
+    cart_pl_n    : output logic    ,
+    cart_pwr_en  : output logic    ,
+    done         : output logic    ,
+    prg_load_wen : output logic    ,
+    prg_load_addr: output logic<15>,
+    chr_load_wen : output logic    ,
+    chr_load_addr: output logic<13>,
+    load_data    : output logic<8> ,
+) {
+    enum state_t {
+        POWER_WAIT,
+        PREPARE,
+        SHIFT_LOW,
+        SHIFT_HIGH,
+        RCLK_HIGH,
+        RCLK_LOW,
+        ACCESS_WAIT,
+        PL_LOW,
+        PL_HIGH,
+        READ_LOW,
+        READ_HIGH,
+        STORE,
+        FINISHED,
+    }
+
+    var state       : state_t    ;
+    var wait_counter: logic  <18>;
+    var phase_count : logic  <2> ;
+    var bit_index   : logic  <6> ;
+    var address     : logic  <15>;
+    var load_address: logic  <15>;
+    var reading_chr : logic      ;
+    var tx_word     : logic  <40>;
+    var rx_word     : logic  <16>;
+
+    /// shift-map.csv bit numbering.  Sending bit 39 first leaves bit 0 at
+    /// U1/QA and bit 39 at U5/QH after forty rising edges.
+    function output_word (
+        chr_mode: input logic    ,
+        addr    : input logic<15>,
+    ) -> logic<40> {
+        var value    : logic<40>;
+        value     = 0;
+        value[15] = 1; // CPU_RNW
+        value[33] = 1; // PPU_WR_N
+        value[34] = 1; // PPU_A13_N (PPU_A13 is zero)
+        if chr_mode {
+            value[17]    = 1; // CPU_ROMSEL_N inactive
+            value[30:18] = addr[12:0]; // PPU_A0..A12
+            value[32]    = 0; // PPU_RD_N active
+        } else {
+            value[14:0] = addr;
+            value[16]   = 1; // CPU_M2
+            value[17]   = 0; // CPU_ROMSEL_N active
+            value[32]   = 1; // PPU_RD_N inactive
+        }
+        return value;
+    }
+
+    assign prg_load_addr = load_address;
+    assign chr_load_addr = load_address[12:0];
+
+    always_ff {
+        if_reset {
+            state        = state_t::POWER_WAIT;
+            wait_counter = 0;
+            phase_count  = 0;
+            bit_index    = 0;
+            address      = 0;
+            load_address = 0;
+            reading_chr  = 0;
+            tx_word      = 0;
+            rx_word      = 0;
+            // U9 is inverting: these produce low SCLK/RCLK and high /PL.
+            cart_sclk    = 1;
+            cart_mosi    = 1;
+            cart_rclk    = 1;
+            cart_pl_n    = 0;
+            cart_pwr_en  = 0;
+            done         = 0;
+            prg_load_wen = 0;
+            chr_load_wen = 0;
+            load_data    = 0;
+        } else {
+            prg_load_wen = 0;
+            chr_load_wen = 0;
+            case (state) {
+                state_t::POWER_WAIT: {
+                    cart_pwr_en = 1;
+                    if wait_counter == POWER_WAIT_CYCLES - 1 {
+                        wait_counter = 0;
+                        state        = state_t::PREPARE;
+                    } else {
+                        wait_counter = wait_counter + 1;
+                    }
+                }
+                state_t::PREPARE: {
+                    tx_word     = output_word(reading_chr, address);
+                    bit_index   = 6'd39;
+                    phase_count = 0;
+                    cart_sclk   = 1;
+                    cart_rclk   = 1;
+                    cart_pl_n   = 0;
+                    state       = state_t::SHIFT_LOW;
+                }
+                state_t::SHIFT_LOW: {
+                    cart_sclk = 1; // register clock low
+                    cart_mosi = !tx_word[bit_index];
+                    if phase_count == 1 {
+                        phase_count = 0;
+                        state       = state_t::SHIFT_HIGH;
+                    } else {
+                        phase_count = phase_count + 1;
+                    }
+                }
+                state_t::SHIFT_HIGH: {
+                    cart_sclk = 0; // register clock high (rising edge)
+                    if phase_count == 1 {
+                        phase_count = 0;
+                        if bit_index == 0 {
+                            state = state_t::RCLK_HIGH;
+                        } else {
+                            bit_index = bit_index - 1;
+                            state     = state_t::SHIFT_LOW;
+                        }
+                    } else {
+                        phase_count = phase_count + 1;
+                    }
+                }
+                state_t::RCLK_HIGH: {
+                    cart_sclk = 1;
+                    cart_rclk = 0; // storage-register clock high
+                    state     = state_t::RCLK_LOW;
+                }
+                state_t::RCLK_LOW: {
+                    cart_rclk    = 1;
+                    wait_counter = 0;
+                    state        = state_t::ACCESS_WAIT;
+                }
+                state_t::ACCESS_WAIT: {
+                    if wait_counter == {13'b0000000000000, ACCESS_WAIT_CYCLES} - 1 {
+                        wait_counter = 0;
+                        state        = state_t::PL_LOW;
+                    } else {
+                        wait_counter = wait_counter + 1;
+                    }
+                }
+                state_t::PL_LOW: {
+                    cart_pl_n   = 1; // parallel-load low
+                    phase_count = 0;
+                    state       = state_t::PL_HIGH;
+                }
+                state_t::PL_HIGH: {
+                    cart_pl_n   = 0;
+                    rx_word     = 0;
+                    bit_index   = 0;
+                    phase_count = 0;
+                    state       = state_t::READ_LOW;
+                }
+                state_t::READ_LOW: {
+                    cart_sclk = 1;
+                    if phase_count == 1 {
+                        // Board wiring deliberately serializes D0 through D7.
+                        rx_word[bit_index[3:0]] = cart_miso;
+                        phase_count             = 0;
+                        state                   = state_t::READ_HIGH;
+                    } else {
+                        phase_count = phase_count + 1;
+                    }
+                }
+                state_t::READ_HIGH: {
+                    cart_sclk = 0;
+                    if phase_count == 1 {
+                        phase_count = 0;
+                        if bit_index == 6'd15 {
+                            state = state_t::STORE;
+                        } else {
+                            bit_index = bit_index + 1;
+                            state     = state_t::READ_LOW;
+                        }
+                    } else {
+                        phase_count = phase_count + 1;
+                    }
+                }
+                state_t::STORE: {
+                    cart_sclk    = 1;
+                    load_address = address;
+                    if reading_chr {
+                        load_data    = rx_word[15:8];
+                        chr_load_wen = 1;
+                        if address[12:0] == CHR_LAST_ADDR {
+                            cart_pwr_en = 0;
+                            state       = state_t::FINISHED;
+                        } else {
+                            address = address + 1;
+                            state   = state_t::PREPARE;
+                        }
+                    } else {
+                        load_data    = rx_word[7:0];
+                        prg_load_wen = 1;
+                        if address == PRG_LAST_ADDR {
+                            address     = 0;
+                            reading_chr = 1;
+                        } else {
+                            address = address + 1;
+                        }
+                        state = state_t::PREPARE;
+                    }
+                }
+                state_t::FINISHED: {
+                    cart_pwr_en = 0;
+                    done        = 1;
+                }
+                default: {
+                    state = state_t::POWER_WAIT;
+                }
+            }
+        }
+    }
+}

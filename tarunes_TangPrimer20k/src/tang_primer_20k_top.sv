@@ -9,6 +9,9 @@ module tang_primer_20k_top #(
     output wire [2:0] O_tmds_data_p, output wire [2:0] O_tmds_data_n,
     output wire O_i2s_bclk, output wire O_i2s_lrck,
     output wire O_i2s_din, output wire O_pa_en,
+    input wire CART_MISO, output wire CART_SCLK,
+    output wire CART_MOSI, output wire CART_RCLK,
+    output wire CART_PL_N, output wire CART_PWR_EN,
     output wire [5:0] O_led
 );
     wire clk27, clk135, pll_lock;
@@ -42,7 +45,7 @@ module tang_primer_20k_top #(
 
     tarunes_top #(
         .PROM_PATH(PROM_PATH), .CROM_PATH(CROM_PATH),
-        .ENABLE_APU(1'b1), .USE_CARTRIDGE(1'b0)
+        .ENABLE_APU(1'b1), .USE_CARTRIDGE(1'b0), .USE_FC_SERIAL(1'b1)
     ) core (
         .clk(clk27), .rst(rst_n), .frame_sync(hdmi_frame_start),
         .sfc_data(sfc_data), .sfc_latch(sfc_latch), .sfc_clk(sfc_clk),
@@ -56,6 +59,9 @@ module tang_primer_20k_top #(
         .cart_cpu_data_oe(), .cart_cpu_rnw(), .cart_cpu_romsel_n(), .cart_cpu_m2(),
         .cart_ppu_addr(), .cart_ppu_data_i(8'h00), .cart_ppu_data_o(),
         .cart_ppu_data_oe(), .cart_ppu_rd_n(), .cart_ppu_wr_n(),
+        .fc_cart_miso(CART_MISO), .fc_cart_sclk(CART_SCLK),
+        .fc_cart_mosi(CART_MOSI), .fc_cart_rclk(CART_RCLK),
+        .fc_cart_pl_n(CART_PL_N), .fc_cart_pwr_en(CART_PWR_EN),
         .debug_palette0(), .debug_palette1(), .debug_palette2(), .debug_palette3(),
         .debug_bg_palette_addr(), .debug_bg_palette_data(),
         .debug_palette_write(), .debug_palette_write_addr(), .debug_palette_write_data()
